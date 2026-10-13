@@ -5,7 +5,7 @@
     BackendPort  = 10894
     FrontendPort = 10895
     HealthPath   = '/api/v1/health'
-    WebRoot      = 'D:\Dev\repos\dreame-mcp\webapp'
+    WebRoot      = 'webapp'
     Backend = @{
         Kind          = 'uvicorn'
         UvicornTarget = 'dreame_mcp.server:app'
