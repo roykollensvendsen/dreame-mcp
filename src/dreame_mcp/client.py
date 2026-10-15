@@ -273,6 +273,8 @@ _STATE_MAP = {
     14: "upgrading",
 }
 
+_CLOUD_FILE_METHODS = frozenset({"get_device_file", "get_file", "get_file_url", "get_interim_file_url"})
+
 _ACTION_MAP = {
     # ref: custom_components/dreame_vacuum/dreame/types.py  DreameVacuumActionMapping
     "start_clean": (2, 1),  # START
@@ -717,12 +719,12 @@ class DreameHomeClient:
 
         func = getattr(self._protocol, method, None)
         cloud = getattr(self._protocol, "cloud", None)
-        if func is None and method in {
-            "get_device_file",
-            "get_file",
-            "get_file_url",
-            "get_interim_file_url",
-        }:
+        if method in _CLOUD_FILE_METHODS and cloud is not None and not getattr(cloud, "_logged_in", False):
+            # The protocol's own cloud is the legacy MiHome client, which is not
+            # logged in for DreameHome accounts. Calling it always raises, and
+            # the error was logged on every map fetch before the fallback ran.
+            return self._safe_call_cloud(method, *args, **kwargs)
+        if func is None and method in _CLOUD_FILE_METHODS:
             if cloud is not None:
                 func = getattr(cloud, method, None)
         if not func:
