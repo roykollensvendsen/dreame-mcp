@@ -254,6 +254,30 @@ async def dreame_shutdown() -> dict:
     return {"success": True, "message": "Dreame MCP shutting down"}
 
 
+def _status_card(heading: str, rows: list[tuple[str, str]]) -> PrefabApp:
+    """Build the status card that MCP clients render.
+
+    prefab_ui takes the content tree as `view=`, and `Row` is a flex container
+    rather than a label/value pair, so each entry is a Row holding a bold label
+    and its value. The card used to be passed as `components=` with
+    `Row(label=..., value=...)`, and prefab_ui ignores both of those silently:
+    the card has always rendered empty.
+    """
+    from prefab_ui import PrefabApp  # type: ignore[attr-defined]
+    from prefab_ui.components import Column, Heading, Row, Text  # type: ignore[attr-defined]
+
+    return PrefabApp(
+        title="Dreame Robot",
+        view=Column(
+            gap=2,
+            children=[
+                Heading(heading),
+                *[Row(children=[Text(label, bold=True), Text(value)]) for label, value in rows],
+            ],
+        ),
+    )
+
+
 @mcp.tool(app=True, annotations=_READ_ONLY)
 async def show_dreame_status_app() -> ToolResult:
     """Show live Dreame robot status as a rich card.
@@ -265,9 +289,6 @@ async def show_dreame_status_app() -> ToolResult:
     ## Examples
     show_dreame_status_app()
     """
-    from prefab_ui import PrefabApp  # type: ignore[attr-defined]
-    from prefab_ui.components import Heading, Row  # type: ignore[attr-defined]
-
     client = _state.get("client")
     if client is None:
         if not _state.get("configured", False):
@@ -280,10 +301,7 @@ async def show_dreame_status_app() -> ToolResult:
             detail = " | ".join(offline_reasons())
         return ToolResult(
             content=f"Robot {heading.lower()} — {detail}",
-            structured_content=PrefabApp(  # type: ignore[call-arg]
-                title="Dreame Robot",
-                components=[Heading(heading), Row(label="Status", value=detail)],  # type: ignore[call-arg]
-            ),
+            structured_content=_status_card(heading, [("Status", detail)]),
         )
     try:
         st = await client.get_status()
@@ -293,17 +311,14 @@ async def show_dreame_status_app() -> ToolResult:
     if st.error:
         return ToolResult(
             content=f"Status unavailable: {st.error}",
-            structured_content=PrefabApp(  # type: ignore[call-arg]
-                title="Dreame Robot",
-                components=[Heading("Status unavailable"), Row(label="Error", value=st.error)],  # type: ignore[call-arg]
-            ),
+            structured_content=_status_card("Status unavailable", [("Error", st.error)]),
         )
     rows = [
-        Row(label="State", value=str(st.state)),  # type: ignore[call-arg]
-        Row(label="Battery", value=f"{st.battery}%"),  # type: ignore[call-arg]
-        Row(label="Charging", value="YES" if st.is_charging else "NO"),  # type: ignore[call-arg]
-        Row(label="Cleaning", value="ACTIVE" if st.is_cleaning else "IDLE"),  # type: ignore[call-arg]
-        Row(label="Fan speed", value=str(st.fan_speed)),  # type: ignore[call-arg]
+        ("State", str(st.state)),
+        ("Battery", f"{st.battery}%"),
+        ("Charging", "YES" if st.is_charging else "NO"),
+        ("Cleaning", "ACTIVE" if st.is_cleaning else "IDLE"),
+        ("Fan speed", str(st.fan_speed)),
     ]
     content = (
         f"## Dreame Robot Status\n- State: {st.state}\n- Battery: {st.battery}%\n"
@@ -312,7 +327,7 @@ async def show_dreame_status_app() -> ToolResult:
     )
     return ToolResult(
         content=content,
-        structured_content=PrefabApp(title="Dreame Robot", components=[Heading("Live status"), *rows]),  # type: ignore[call-arg]
+        structured_content=_status_card("Live status", rows),
     )
 
 
