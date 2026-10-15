@@ -503,7 +503,6 @@ def _connection_info() -> dict:
         "configured": bool(_state.get("configured", False)),
         "ip": client._ip if client else conn.get("ip"),
         "did": client._did if client else conn.get("did"),
-        "user": (client._username or None) if client else None,
         "user_set": bool((client._username if client else None) or os.environ.get("DREAME_USER")),
         "password_set": bool(os.environ.get("DREAME_PASSWORD")),
         "country": os.environ.get("DREAME_COUNTRY", "eu") or "eu",
@@ -597,8 +596,8 @@ async def api_connection_update(payload: dict):
         if key not in payload or payload[key] is None:
             continue
         value = str(payload[key]).strip()
-        if key == "password" and not value:
-            continue  # empty password = leave unchanged
+        if key in ("user", "password") and not value:
+            continue  # empty account or password = leave unchanged
         updates[env_map[key]] = value
     if not updates:
         return {"updated": [], "connection": _connection_info()}
