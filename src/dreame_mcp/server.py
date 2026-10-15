@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -255,6 +256,8 @@ async def dreame_shutdown() -> dict:
     _state["client"] = None
     if _server is not None:
         _server.should_exit = True
+    elif _serving_stdio:
+        asyncio.get_running_loop().call_later(0.5, sys.exit, 0)
     return {"success": True, "message": "Dreame MCP shutting down"}
 
 
@@ -845,6 +848,9 @@ async def llm_chat(body: dict):
 _server: uvicorn.Server | None = None
 
 
+_serving_stdio = False
+
+
 async def _run_stdio() -> None:
     """Serve MCP over stdio, running the startup sequence the HTTP path gets
     from the FastAPI lifespan.
@@ -855,7 +861,9 @@ async def _run_stdio() -> None:
     tool reports "Not configured" however good the credentials are. Connect
     here instead, and disconnect on the way out.
     """
+    global _serving_stdio
     await _establish(client_from_env())
+    _serving_stdio = True
     try:
         await mcp.run_stdio_async()
     finally:
