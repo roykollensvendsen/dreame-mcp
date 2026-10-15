@@ -551,14 +551,21 @@ class DreameHomeClient:
                         target = records[0]
                     if target:
                         self._did = str(target.get("did", "")) or self._did
+                        # The cloud client was constructed before the DID was
+                        # known, and it builds every command payload from its own
+                        # copy of it. Left unset, sendCommand posts did="None" and
+                        # the gateway answers 400 Bad Request.
+                        if self._did and getattr(cloud, "_did", None) != self._did:
+                            cloud._did = self._did
                         bind = target.get("bindDomain")
                         if bind and hasattr(cloud, "_host"):
                             cloud._host = bind
                             logger.info("Cloud command host: %s (did=%s)", bind, self._did)
                         elif self._did:
                             logger.info("DID=%s (no bindDomain in device record)", self._did)
-                    # Populate _model/_uid/_host on the cloud client so the map
-                    # file API (get_interim_file_url) can sign URLs.
+                    # Populate _model/_uid on the cloud client so the map file API
+                    # (get_interim_file_url) can sign URLs. Depends on _did being
+                    # set above — it posts {"did": self._did} as well.
                     try:
                         cloud.get_device_info()
                     except Exception as e:
