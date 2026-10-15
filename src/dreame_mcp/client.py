@@ -671,7 +671,10 @@ class DreameHomeClient:
 
             state_str = _STATE_MAP.get(state_code, f"state_{state_code}")
             is_charging = charging_code in (1, 2)
-            is_cleaning = state_code in (1, 6, 7, 11)
+            # States that put the robot to work on the floor, per DreameVacuumState
+            # in the reference types.py. CHARGING(6) and BUILDING(11) are not
+            # cleaning; SWEEPING_AND_MOPPING(12) is.
+            is_cleaning = state_code in (1, 7, 12, 25, 27, 38, 101)
 
             return DreameStatus(
                 state=state_str,
