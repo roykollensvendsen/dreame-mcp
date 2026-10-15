@@ -9,6 +9,7 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -28,6 +29,9 @@ from .portmanteau import (
     offline_reasons,
 )
 from .state import _state
+
+if TYPE_CHECKING:
+    from prefab_ui import PrefabApp  # type: ignore[attr-defined]
 
 logging.basicConfig(
     level=logging.INFO,
