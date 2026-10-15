@@ -127,6 +127,14 @@ async def _establish(client):
         logger.warning("Dreame Protocol connect failed — robot offline (%s)", _state["startup_error"])
 
 
+async def _teardown() -> None:
+    """Disconnect the live client, if any. Shared by lifespan shutdown and the
+    stdio entry point."""
+    c = _state.get("client")
+    if c:
+        c.disconnect()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Dreame MCP starting")
@@ -135,9 +143,7 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Dreame MCP shutting down")
-    c = _state.get("client")
-    if c:
-        c.disconnect()
+    await _teardown()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -821,6 +827,23 @@ async def llm_chat(body: dict):
 _server: uvicorn.Server | None = None
 
 
+async def _run_stdio() -> None:
+    """Serve MCP over stdio, running the startup sequence the HTTP path gets
+    from the FastAPI lifespan.
+
+    `mcp` is built with FastMCP.from_fastapi(app), which only runs the app's
+    lifespan when an ASGI server serves it. In --mode stdio uvicorn never
+    starts, so nothing calls _establish(), _state stays unconfigured and every
+    tool reports "Not configured" however good the credentials are. Connect
+    here instead, and disconnect on the way out.
+    """
+    await _establish(client_from_env())
+    try:
+        await mcp.run_stdio_async()
+    finally:
+        await _teardown()
+
+
 def main():
     import argparse
 
@@ -832,7 +855,7 @@ def main():
     if args.mode == "stdio":
         import asyncio
 
-        asyncio.run(mcp.run_stdio_async())
+        asyncio.run(_run_stdio())
         return
 
     global _server
