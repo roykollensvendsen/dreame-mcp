@@ -2,7 +2,7 @@
 
 `dreame-voice-mcp` is a second, much smaller MCP server in this package, for
 voice assistants and other clients that read a one-line answer aloud. It speaks
-MCP over stdio only, and has eight tools and no web app or sampling.
+MCP over stdio only, and has nine tools and no web app or sampling.
 
 | Tool | Does | Asks first |
 |---|---|---|
@@ -14,18 +14,28 @@ MCP over stdio only, and has eight tools and no web app or sampling.
 | `vacuum_find` | Makes it beep | no |
 | `vacuum_where` | Says which room it is in, from its live map, and whether it is on its dock | — |
 | `vacuum_rooms` | Names the rooms on its map | — |
+| `vacuum_clean_rooms` | Cleans only the rooms named, in that order | no |
 
-None of the tools takes an input. Every one answers in the same shape:
+Only `vacuum_clean_rooms` takes an input, `rooms`, a list of room names. Every tool answers in the same shape:
 
 ```json
 {"success": true, "say": "The vacuum is charging on the dock, battery 84 percent.", "state": "charging", "battery": 84}
 ```
 
-`vacuum_where` adds `room`, and `vacuum_rooms` adds `rooms`, a list of names.
+`vacuum_where` adds `room`; `vacuum_rooms` and `vacuum_clean_rooms` add `rooms`, a list of names.
 Room names are the ones set in the DreameHome app; unnamed rooms are
 "Room 1", "Room 2" and so on. On a map without rooms, for example a floor it
 has not mapped before, `vacuum_where` says so. When only the saved map can be
 had, it says it does not know where the vacuum is now.
+
+`vacuum_clean_rooms` matches each name against the map's rooms, ignoring
+case, spacing and a leading "the", so "room 3" finds "Room 3" and a name set
+later in the app works at once. An unknown name, or none, cleans nothing and
+the answer names the rooms there are. It does not start while the vacuum is
+already cleaning; stop it first. It sends what the DreameHome app sends for a
+room clean (action 4.1 with status 18 and the rooms in property 4.10), with
+the robot's current suction and water settings and one pass per room, then
+reads the state back: "Started cleaning Kitchen and Hallway, battery 90 percent."
 
 `say` is meant to be read aloud as it is. `state` is one short word
 (`cleaning`, `paused`, `returning`, `charging`, `docked`, `idle`, `error`, …)
@@ -104,6 +114,6 @@ uv run pytest tests/test_voice.py
 ```
 
 They cover the spoken text for each state, a whole clean on the pretend
-vacuum, where it is and its rooms, ask-first tokens, the cloud being down, a slow login and a slow read,
+vacuum, where it is and its rooms, cleaning chosen rooms, ask-first tokens, the cloud being down, a slow login and a slow read,
 the wait before a new login, that no password or account name reaches an
 answer or a log, and that nothing but MCP reaches stdout.

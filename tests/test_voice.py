@@ -18,7 +18,7 @@ from dreame_mcp.simulator import SimulatedVacuum
 from dreame_mcp.voice import Link, Reading, Vacuum, build_server, instructions
 
 SIX = {"vacuum_status", "vacuum_start", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
-TOOLS = SIX | {"vacuum_where", "vacuum_rooms"}
+TOOLS = SIX | {"vacuum_where", "vacuum_rooms", "vacuum_clean_rooms"}
 
 
 class Clock:
@@ -232,6 +232,9 @@ class FakeClient:
     async def get_map(self) -> dict:
         return self.map_answer
 
+    async def clean_rooms(self, room_ids: list[int]) -> dict:
+        return {"success": False, "error": "refused"}
+
     def disconnect(self) -> None:
         self.connected = False
 
@@ -295,7 +298,9 @@ async def test_password_never_in_an_answer_or_a_log(tmp_path, monkeypatch, caplo
     client = client_mod.client_from_env(secrets_dir)
     v = _vacuum(client)
     with caplog.at_level(logging.DEBUG):
-        answers = [await _call(v, t) for t in sorted(TOOLS)]
+        answers = [
+            await _call(v, t, **({"rooms": ["Room 1"]} if t == "vacuum_clean_rooms" else {})) for t in sorted(TOOLS)
+        ]
     text = json.dumps(answers) + caplog.text
     assert "hunter2-very-secret" not in text
     assert "owner@example.com" not in text
@@ -407,3 +412,84 @@ async def test_rooms_without_a_map():
     a = await _vacuum(FakeClient()).rooms()
     assert not a["success"]
     assert "map" in a["say"]
+
+
+# -- cleaning chosen rooms ---------------------------------------------------
+
+
+async def test_clean_rooms_by_name_any_case():
+    clock = Clock()
+    sim = SimulatedVacuum(clock=clock)
+    a = await _call(_vacuum(sim, clock=clock), "vacuum_clean_rooms", rooms=["kitchen", "  the HALLWAY "])
+    assert a["success"]
+    assert a["say"] == "Started cleaning Kitchen and Hallway, battery 100 percent."
+    assert a["rooms"] == ["Kitchen", "Hallway"]
+    assert a["state"] == "cleaning"
+    assert sim.sent == ["clean_rooms:2,3"]
+
+
+async def test_clean_rooms_goes_through_them_and_home():
+    clock = Clock()
+    sim = SimulatedVacuum(clock=clock)
+    v = _vacuum(sim, clock=clock)
+    await v.clean_rooms(["Hallway", "Kitchen", "hallway"])
+    assert sim.sent == ["clean_rooms:3,2"]
+    assert (await v.where())["room"] == "Hallway"
+    clock.now += 31
+    assert (await v.where())["room"] == "Kitchen"
+    clock.now += 31
+    assert (await v.status())["state"] == "returning"
+
+
+async def test_unknown_room_is_refused_and_the_rooms_named():
+    sim = SimulatedVacuum()
+    a = await _vacuum(sim).clean_rooms(["Kitchen", "Bathroom"])
+    assert not a["success"]
+    assert a["say"] == "There is no room called 'Bathroom'. The map has Living room, Kitchen and Hallway."
+    assert sim.sent == []
+
+
+async def test_no_rooms_given_asks_which():
+    sim = SimulatedVacuum()
+    a = await _vacuum(sim).clean_rooms([" "])
+    assert not a["success"]
+    assert a["say"].startswith("Which rooms? The map has Living room")
+    assert sim.sent == []
+
+
+async def test_clean_rooms_while_cleaning_is_refused():
+    sim = SimulatedVacuum()
+    v = _vacuum(sim)
+    await v.start()
+    a = await v.clean_rooms(["Kitchen"])
+    assert not a["success"]
+    assert "Stop it first" in a["say"]
+    assert sim.sent == ["start_clean"]
+
+
+async def test_clean_rooms_on_a_map_without_rooms():
+    fake = FakeClient()
+    fake.map_answer = _map(room_list=[], robot_room=None, docked=True)
+    a = await _vacuum(fake).clean_rooms(["Room 1"])
+    assert not a["success"]
+    assert "no rooms" in a["say"]
+
+
+async def test_clean_rooms_without_a_map_sends_nothing():
+    a = await _vacuum(FakeClient()).clean_rooms(["Room 1"])
+    assert not a["success"]
+    assert a["say"].endswith("The vacuum wasn't told anything.")
+
+
+async def test_clean_rooms_refused_by_the_cloud():
+    fake = FakeClient()
+    fake.map_answer = _map(room_list=[{"id": 3, "name": "Room 3"}], robot_room=None, docked=True)
+    a = await _vacuum(fake).clean_rooms(["room 3"])
+    assert not a["success"]
+    assert "didn't take the command" in a["say"]
+
+
+async def test_clean_rooms_offline():
+    a = await _vacuum(SimulatedVacuum(offline=True)).clean_rooms(["Kitchen"])
+    assert not a["success"]
+    assert a["say"].endswith("The vacuum wasn't told anything.")

@@ -1,9 +1,9 @@
-"""A voice-sized MCP server for a Dreame robot vacuum: eight small tools with spoken answers.
+"""A voice-sized MCP server for a Dreame robot vacuum: nine small tools with spoken answers.
 
 The main server (``server.py``) is a full workbench: one portmanteau tool, a
 map, a web app, sampling. A voice assistant needs much less and needs it
 short: is the vacuum busy, how full is its battery, start, pause, stop, go
-home, beep, where is it, which rooms. This module serves exactly that over stdio, for voice bridges and
+home, beep, where is it, which rooms, clean these rooms. This module serves exactly that over stdio, for voice bridges and
 other clients that read a one-line answer aloud.
 
 Every tool answers ``{"success", "say", "state", "battery"}``. ``say`` is one
@@ -111,7 +111,21 @@ class VacuumClient(Protocol):
     async def get_status(self) -> DreameStatus: ...
     async def control(self, cmd: str) -> dict: ...
     async def get_map(self) -> dict: ...
+    async def clean_rooms(self, room_ids: list[int]) -> dict: ...
     def disconnect(self) -> None: ...
+
+
+def _listed(names: list[str]) -> str:
+    """'A', 'A and B', 'A, B and C'."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _room_key(name: str) -> str:
+    """A room name as compared: case and spacing ignored, and a leading 'the'."""
+    words = name.casefold().split()
+    if len(words) > 1 and words[0] == "the":
+        words = words[1:]
+    return " ".join(words)
 
 
 class Unavailable(Exception):
@@ -455,11 +469,57 @@ class Vacuum:
             names = [room["name"] for room in m["map_data"].get("room_list") or []]
             if not names:
                 return self._answer(True, "Its map has no rooms yet.", rooms=[])
-            listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
             count = "one room" if len(names) == 1 else f"{len(names)} rooms"
-            return self._answer(True, f"The map has {count}: {listed}.", rooms=names)
+            return self._answer(True, f"The map has {count}: {_listed(names)}.", rooms=names)
 
         return await self._guarded(act, sent=False)
+
+    async def clean_rooms(self, rooms: list[str]) -> dict[str, Any]:
+        """Clean the named rooms, in the order given; names as vacuum_rooms gives them."""
+
+        async def act(deadline: float) -> dict[str, Any]:
+            asked = [r for r in (rooms or []) if r and r.strip()]
+            r = await self._read(deadline)
+            if r.cleaning:
+                return self._answer(False, f"It's already {r.words()}. Stop it first, then ask again.", r, rooms=[])
+            m = await self._map(deadline)
+            room_list = m["map_data"].get("room_list") or []
+            if not room_list:
+                return self._answer(False, "Its map has no rooms, so I can't clean by room.", r, rooms=[])
+            known = {_room_key(room["name"]): room for room in room_list}
+            existing = _listed([room["name"] for room in room_list])
+            if not asked:
+                return self._answer(False, f"Which rooms? The map has {existing}.", r, rooms=[])
+            unknown = [name.strip() for name in asked if _room_key(name) not in known]
+            if unknown:
+                these = "There is no room called " + _listed([f"'{u}'" for u in unknown])
+                return self._answer(False, f"{these}. The map has {existing}.", r, rooms=[])
+            chosen: list[dict[str, Any]] = []
+            for name in asked:
+                room = known[_room_key(name)]
+                if room not in chosen:
+                    chosen.append(room)
+            names = [room["name"] for room in chosen]
+            client = await self.link.ready(deadline)
+            result = await self._within(deadline, client.clean_rooms([int(room["id"]) for room in chosen]))
+            if not result.get("success"):
+                logger.warning("room clean not accepted: %s", result.get("error"))
+                raise Unavailable("The Dreame cloud didn't take the command. Try again in a moment.")
+            after = await self._after(deadline)
+            if after is None:
+                return self._answer(
+                    True, f"I sent it to clean {_listed(names)}. I couldn't check yet whether it set off.", rooms=names
+                )
+            if after.cleaning:
+                say = f"Started cleaning {_listed(names)}, battery {after.battery} percent."
+                if after.battery is None:
+                    say = f"Started cleaning {_listed(names)}."
+                return self._answer(True, say, after, rooms=names)
+            return self._answer(
+                True, f"I sent it to clean {_listed(names)}. The vacuum says it is {after.words()}.", after, rooms=names
+            )
+
+        return await self._guarded(act, sent=True)
 
     async def _simple(self, cmd: str, done: str, applies: Callable[[Reading], bool], nothing: str) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
@@ -481,7 +541,8 @@ def instructions(ask_first: bool, simulated: bool) -> str:
         "aloud as it is. vacuum_status tells what it is doing and its battery. vacuum_start starts a "
         "full clean, vacuum_pause pauses it, vacuum_stop stops it where it is, vacuum_go_home sends it "
         "back to the dock, vacuum_find makes it beep. vacuum_where says which room it is in, from its "
-        "map; vacuum_rooms names the rooms on its map. Call a command only when the user asks for it "
+        "map; vacuum_rooms names the rooms on its map; vacuum_clean_rooms cleans the rooms the user names, "
+        "by the names vacuum_rooms gives. Call a command only when the user asks for it "
         "now; never start a clean on your own. When 'success' is false, read 'say' and do not retry "
         "by yourself."
     )
@@ -563,6 +624,11 @@ def build_server(vacuum: Vacuum) -> FastMCP:
     async def vacuum_rooms() -> dict[str, Any]:
         """The names of the rooms on the vacuum's map."""
         return await vacuum.rooms()
+
+    @mcp.tool(annotations=acts)
+    async def vacuum_clean_rooms(rooms: list[str]) -> dict[str, Any]:
+        """Clean only these rooms, in this order. Use the room names vacuum_rooms gives, such as "Room 3"."""
+        return await vacuum.clean_rooms(rooms)
 
     return mcp
 

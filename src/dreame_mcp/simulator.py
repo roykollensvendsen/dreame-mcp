@@ -15,6 +15,7 @@ cloud" answer.
 
 Its map has three rooms. The dock is in the living room; while cleaning it
 moves from room to room every 30 s, and heading home it is in the hallway.
+``clean_rooms`` cleans only the rooms given, in turn, then heads home.
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ class SimulatedVacuum:
         self._last = clock()
         self._offline = offline
         self._connected = False
+        self._rooms = ROOMS
         self.sent: list[str] = []
 
     @property
@@ -76,7 +78,8 @@ class SimulatedVacuum:
             self._state = CHARGED_STATE if self._battery >= 100 else CHARGING_STATE
         elif self._state == SWEEPING:
             self._battery = max(0.0, self._battery - dt / DRAIN_EVERY)
-            if self._battery < LOW_BATTERY:
+            done = self._rooms is not ROOMS and now - self._since >= ROOM_EVERY * len(self._rooms)
+            if self._battery < LOW_BATTERY or done:
                 self._go(RETURNING)
         elif self._state == RETURNING and now - self._since >= TRIP_HOME:
             self._go(CHARGING_STATE)
@@ -111,11 +114,25 @@ class SimulatedVacuum:
             "go_home": RETURNING,
         }
         if cmd in moves:
+            if cmd == "start_clean" and self._state != PAUSED:
+                self._rooms = ROOMS
             self._go(moves[cmd])
         elif cmd != "find_robot":
             return {"success": False, "error": f"Unknown command: {cmd}"}
         self.sent.append(cmd)
         return {"success": True, "message": f"Sent {cmd}"}
+
+    async def clean_rooms(self, room_ids: list[int]) -> dict:
+        if not self._connected:
+            return {"success": False, "error": "Not connected"}
+        self._advance()
+        chosen = [room for rid in room_ids for room in ROOMS if room["id"] == rid]
+        if not chosen or len(chosen) != len(room_ids):
+            return {"success": False, "error": f"Unknown rooms: {room_ids}"}
+        self._rooms = chosen
+        self._go(SWEEPING)
+        self.sent.append("clean_rooms:" + ",".join(str(r) for r in room_ids))
+        return {"success": True, "message": f"Sent room clean {room_ids}"}
 
     async def get_map(self) -> dict:
         if not self._connected:
@@ -127,7 +144,7 @@ class SimulatedVacuum:
         elif self._state == RETURNING:
             room = HALL
         else:
-            room = ROOMS[int((self._clock() - self._since) // ROOM_EVERY) % len(ROOMS)]
+            room = self._rooms[int((self._clock() - self._since) // ROOM_EVERY) % len(self._rooms)]
         return {
             "success": True,
             "source": "live",
