@@ -58,7 +58,7 @@ select = ["E", "F", "W", "I", "B", "S", "UP", "RUF", "T20"]
 ignore = ["S101", "B008", "S106", "S110", "S112", "S101", "B008", "S106", "S110", "S112", "RUF012", "S603", "S607", "S324", "E402", "E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["T20", "S101"]
+"tests/**" = ["T20", "S101", "S105", "S106", "S107"]  # fake test passwords
 "scripts/**" = ["T20", "S101", "S310", "S311"]
 "scratch/**" = ["T20", "S101", "S310", "S311"]
 

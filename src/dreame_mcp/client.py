@@ -1101,8 +1101,35 @@ def _point_to_dict(point) -> dict | None:
     return {"x": getattr(point, "x", 0), "y": getattr(point, "y", 0)}
 
 
-def client_from_env() -> DreameHomeClient | None:
-    """Build a DreameHomeClient from environment variables supporting Hybrid Mode."""
+def read_credentials_dir(path: str | Path) -> tuple[str | None, str | None]:
+    """Read the DreameHome account and password from files ``user`` and ``password``.
+
+    Lets a launcher point the server at a private folder (mode 700, files 600)
+    instead of putting the password in .env or in the environment of whatever
+    starts the server. ``~`` is expanded here, because a launcher without a
+    shell passes it on literally. A missing file gives None; a file others can
+    read is used, with a warning.
+    """
+    folder = Path(path).expanduser()
+    values: list[str | None] = []
+    for name in ("user", "password"):
+        f = folder / name
+        if not f.is_file():
+            values.append(None)
+            continue
+        if f.stat().st_mode & 0o077:
+            logger.warning("%s can be read by other users; chmod 600 it", f)
+        values.append(f.read_text(encoding="utf-8").strip() or None)
+    return values[0], values[1]
+
+
+def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClient | None:
+    """Build a DreameHomeClient from environment variables supporting Hybrid Mode.
+
+    With ``credentials_dir``, the account and password come from the files in
+    that folder (see read_credentials_dir) and take precedence over the
+    environment; everything else still comes from the environment and .env.
+    """
     load_dotenv()
     if not os.environ.get("DREAME_USER") and not os.environ.get("DREAME_IP"):
         # Fleet starters may launch uvicorn with a CWD outside the repo root,
@@ -1112,6 +1139,10 @@ def client_from_env() -> DreameHomeClient | None:
             load_dotenv(_repo_env)
     user = os.environ.get("DREAME_USER", "").strip()
     pwd = os.environ.get("DREAME_PASSWORD", "").strip()
+    if credentials_dir is not None:
+        file_user, file_pwd = read_credentials_dir(credentials_dir)
+        user = file_user or user
+        pwd = file_pwd or pwd
     ip = os.environ.get("DREAME_IP", "").strip()
     token = os.environ.get("DREAME_TOKEN", "").strip()
 

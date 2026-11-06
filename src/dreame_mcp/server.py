@@ -143,7 +143,7 @@ async def _teardown() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Dreame MCP starting")
-    await _establish(client_from_env())
+    await _establish(client_from_env(_credentials_dir))
 
     yield
 
@@ -617,7 +617,7 @@ async def api_connection_update(payload: dict):
         except Exception:
             pass
     logger.info("Connection settings updated (%s) — reconnecting", sorted(updates))
-    await _establish(client_from_env())
+    await _establish(client_from_env(_credentials_dir))
     info = _connection_info()
     return {"updated": sorted(updates), "env_file": str(saved), "connection": info}
 
@@ -849,6 +849,8 @@ _server: uvicorn.Server | None = None
 
 
 _serving_stdio = False
+# Folder with the DreameHome login files, from --secrets-dir (None: environment/.env).
+_credentials_dir: str | None = None
 
 
 async def _run_stdio() -> None:
@@ -862,7 +864,7 @@ async def _run_stdio() -> None:
     here instead, and disconnect on the way out.
     """
     global _serving_stdio
-    await _establish(client_from_env())
+    await _establish(client_from_env(_credentials_dir))
     _serving_stdio = True
     try:
         await mcp.run_stdio_async()
@@ -876,7 +878,15 @@ def main():
     p = argparse.ArgumentParser(description="Dreame D20 Pro Plus MCP Server")
     p.add_argument("--mode", default="dual", choices=("stdio", "http", "dual"))
     p.add_argument("--port", type=int, default=int(os.environ.get("DREAME_MCP_PORT", "10894")))
+    p.add_argument(
+        "--secrets-dir",
+        default=os.environ.get("DREAME_SECRETS_DIR") or None,
+        help="Folder with files 'user' and 'password' (DreameHome login); overrides DREAME_USER/DREAME_PASSWORD",
+    )
     args = p.parse_args()
+
+    global _credentials_dir
+    _credentials_dir = args.secrets_dir
 
     if args.mode == "stdio":
         import asyncio
