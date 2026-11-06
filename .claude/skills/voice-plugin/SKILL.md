@@ -45,3 +45,8 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
 - `vacuum_where` and `vacuum_rooms` read the live map (`get_map`), which
   asks the robot to upload it; about 0.5-2 s. The map side is in the
   `robot-map` skill.
+- `vacuum_clean_rooms` maps names to map segment ids from the same map, then
+  sends START_CUSTOM (4.1, status 18, rooms in 4.10) as the reference's
+  `clean_segment` does. Its tests use the simulator and a fake `_safe_call`;
+  the first real call is Roy's, not ours. A new tool or input changes the
+  plugin's fingerprint, so Roy re-approves before the bridge restart.
