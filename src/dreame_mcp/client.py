@@ -27,6 +27,7 @@ import os
 import sys
 import threading
 import types as _types
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -331,6 +332,49 @@ def _miot_did_slots(n: int, cloud_did: str | None) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _split_object_name(object_name: str) -> tuple[str, str | None]:
+    """Split a map object name 'name,key' into the file name and its decryption key.
+
+    The robot reports its live map as e.g. 'ali_dreame/<model>/<did>/1,<key>'.
+    Only the part before the comma names the file in cloud storage; asking for
+    the whole string gets NoSuchKey. The key decrypts the downloaded file.
+    """
+    name, sep, key = str(object_name).strip().partition(",")
+    return name, (key or None) if sep else None
+
+
+_IV_CACHE: dict[str, str | None] = {}
+
+
+def _map_aes_iv(model: str | None) -> str | None:
+    """The AES IV the reference project lists for a model ('dreame.vacuum.r2363a'), or None.
+
+    Encrypted map files are AES-CBC with a key from the object name and an IV
+    that belongs to the model; the reference keeps the IVs in its DEVICE_INFO
+    table. Models without one send unencrypted maps.
+    """
+    if not model:
+        return None
+    short = model[model.rfind(".") + 1 :]
+    if short in _IV_CACHE:
+        return _IV_CACHE[short]
+    iv: str | None = None
+    try:
+        from custom_components.dreame_vacuum.dreame.const import (  # type: ignore[import-not-found]
+            DEVICE_INFO,
+        )
+
+        info = json.loads(zlib.decompress(base64.b64decode(DEVICE_INFO), zlib.MAX_WBITS | 32))
+        index = info[3].get(short)
+        entry = info[0][index] if index is not None else None
+        if entry and len(entry) == 4 and 0 <= entry[3] < len(info[2]):
+            iv = info[2][entry[3]] or None
+    except Exception as e:
+        logger.debug("No map IV for %s: %s", model, e)
+    _IV_CACHE[short] = iv
+    return iv
+
+
 def _classify_cloud_failure(cloud) -> str:
     """Turn a failed DreameHome cloud login into an actionable reason.
 
@@ -380,6 +424,7 @@ class DreameHomeClient:
         self._ip = ip
         self._token = token if token else "0" * 32
         self._did = did
+        self._model: str | None = None  # e.g. dreame.vacuum.r2363a, from the cloud device record
         self._auth_key = auth_key
         self._ref_path = ref_path or _REF_DEFAULT
         self._protocol = None
@@ -553,6 +598,7 @@ class DreameHomeClient:
                         target = records[0]
                     if target:
                         self._did = str(target.get("did", "")) or self._did
+                        self._model = target.get("model") or self._model
                         # The cloud client was constructed before the DID was
                         # known, and it builds every command payload from its own
                         # copy of it. Left unset, sendCommand posts did="None" and
@@ -869,6 +915,67 @@ class DreameHomeClient:
             return raw
         return None
 
+    def _request_map_object_sync(self) -> str | None:
+        """Ask the robot to upload its current map; return the object name it reports.
+
+        This is what the DreameHome app does to show a live map (action 6.1,
+        an I-frame request). It does not move the robot. Without it, the
+        object name in property 6.3 can point at a map minutes old.
+        """
+        params = json.dumps({"req_type": 1, "frame_type": "I", "force_type": 1}, separators=(",", ":"))
+        try:
+            r = self._safe_call(
+                "send",
+                "action",
+                {"did": str(self._did), "siid": 6, "aiid": 1, "in": [{"piid": 2, "value": params}]},
+            )
+        except Exception as e:
+            logger.debug("request map failed: %s", e)
+            return None
+        old_style: str | None = None
+        for prop in (r.get("out") if isinstance(r, dict) else None) or []:
+            value = str(prop.get("value") or "")
+            if not value:
+                continue
+            if prop.get("piid") == 3:  # OBJECT_NAME
+                return value
+            if prop.get("piid") == 13 and old_style is None:  # OLD_MAP_DATA: "1,<name>[,<key>]"
+                parts = value.split(",")
+                if parts[0] != "0" and len(parts) > 1:
+                    old_style = ",".join(parts[1:])
+        return old_style
+
+    def _fetch_saved_map_sync(self) -> tuple[Any, str] | None:
+        """The robot's current saved map, from the map list file named in property 6.8.
+
+        Returns (decoded map, object name), or None. Used when the live map
+        cannot be had; it has the rooms but not where the robot is now.
+        """
+        if _map_decoder_cls is None:
+            return None
+        slot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
+        res = self._safe_call("send", "get_properties", [{"did": slot, "siid": 6, "piid": 8}])
+        value = res[0].get("value") if isinstance(res, list) and res else None
+        try:
+            obj = json.loads(value).get("object_name") if isinstance(value, str) else None
+        except ValueError:
+            obj = None
+        if not obj:
+            return None
+        raw = self._fetch_map_bytes_from_cloud_url(obj)
+        if not raw:
+            return None
+        data = json.loads(_map_raw_bytes_to_str(raw))
+        current = data.get("curr_id")
+        chosen = None
+        for entry in data.get("mapstr") or []:
+            decoded = _map_decoder_cls.decode_saved_map(entry.get("map", ""), 1, int(entry.get("angle") or 0), None)
+            if decoded is None:
+                continue
+            if chosen is None or getattr(decoded, "map_id", None) == current:
+                chosen = decoded
+        return (chosen, obj) if chosen is not None else None
+
     async def get_map(self) -> dict:
         """Fetch and decode the current map. Returns base64 PNG if rendering works.
 
@@ -894,7 +1001,10 @@ class DreameHomeClient:
             if not self._protocol:
                 return {"success": False, "error": "Not connected"}
             try:
-                name_resolved = self._resolve_live_map_object_name()
+                name_resolved = self._request_map_object_sync() or self._resolve_live_map_object_name()
+                map_key: str | None = None
+                if name_resolved:
+                    name_resolved, map_key = _split_object_name(name_resolved)
                 raw: bytes | None = None
                 on_display: str | None = name_resolved
                 attempted: list[dict[str, str]] = []
@@ -961,6 +1071,20 @@ class DreameHomeClient:
                             logger.debug("get_file_url fallback: %s", e)
 
                 if not raw or _map_bytes_looks_like_error_json(raw):
+                    saved = None
+                    try:
+                        saved = self._fetch_saved_map_sync()
+                    except Exception as e:
+                        logger.debug("saved map fallback failed: %s", e)
+                    if saved is not None:
+                        mdl, saved_obj = saved
+                        result = {"success": True, "source": "saved", "object_name": saved_obj}
+                        if self._map_renderer:
+                            out = self._map_renderer.render_map(mdl, 0, 0)
+                            if out:
+                                result["image"] = base64.b64encode(out).decode()
+                        result["map_data"] = _map_object_to_dict(mdl)
+                        return result
                     return {
                         "success": False,
                         "error": "Map fetch failed (signed URL, get_device_file, and property 23.1 all failed)",
@@ -976,6 +1100,7 @@ class DreameHomeClient:
 
                 result: dict[str, Any] = {
                     "success": True,
+                    "source": "live",
                     "object_name": on_display,
                     "raw_bytes": len(raw),
                 }
@@ -984,9 +1109,9 @@ class DreameHomeClient:
                     try:
                         raw_str = _map_raw_bytes_to_str(raw)
                         mm = self._map_manager
-                        vslam = bool(getattr(mm, "_vslam_map", False)) if mm is not None else False
-                        aes_iv = getattr(mm, "_aes_iv", None) if mm is not None else None
-                        dec = _map_decoder_cls.decode_map(raw_str, vslam, 0, aes_iv, None)
+                        model = self._model or getattr(self._dreame_cloud, "_model", None)
+                        aes_iv = _map_aes_iv(model) or (getattr(mm, "_aes_iv", None) if mm is not None else None)
+                        dec = _map_decoder_cls.decode_map(raw_str, 1, 0, aes_iv, map_key)
                         mdl: Any = None
                         if isinstance(dec, tuple) and len(dec) > 0:
                             mdl = dec[0]
