@@ -28,3 +28,5 @@ short `SKILL.md`, and links instead of copied text. Current skills:
 
 - `voice-plugin`: the vacuum's voice plugin for the claude-voice bridge,
   how it is wired, approved and changed safely.
+- `robot-map`: get, show and debug the vacuum's map, where it is, and a
+  short film of it moving.
