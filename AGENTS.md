@@ -15,3 +15,16 @@ FastMCP 3.2.0 MCP server and webapp for Dreame robot vacuums via DreameHome clou
 - `CLAUDE.md` — Claude Code context (if present)
 
 Install docs: follow mcp-central-docs/standards/AGENT_INSTALL_REFERENCE.md
+
+## Living skills
+
+This fork keeps its own project skills in `.claude/skills/`. When you learn
+something non-obvious here (a fix, a pitfall, a procedure that took more than
+one try), capture it in the matching skill **in the same commit or pull
+request**, or add a new skill if none fits. Update a skill when what it says
+stops being true, and prune what is no longer needed. Keep each skill small
+and to one task: a precise description of what it does and when to use it, a
+short `SKILL.md`, and links instead of copied text. Current skills:
+
+- `voice-plugin`: the vacuum's voice plugin for the claude-voice bridge,
+  how it is wired, approved and changed safely.
