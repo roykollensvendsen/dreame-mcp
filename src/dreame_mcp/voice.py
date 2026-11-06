@@ -1,9 +1,9 @@
-"""A voice-sized MCP server for a Dreame robot vacuum: six small tools with spoken answers.
+"""A voice-sized MCP server for a Dreame robot vacuum: eight small tools with spoken answers.
 
 The main server (``server.py``) is a full workbench: one portmanteau tool, a
 map, a web app, sampling. A voice assistant needs much less and needs it
 short: is the vacuum busy, how full is its battery, start, pause, stop, go
-home, beep. This module serves exactly that over stdio, for voice bridges and
+home, beep, where is it, which rooms. This module serves exactly that over stdio, for voice bridges and
 other clients that read a one-line answer aloud.
 
 Every tool answers ``{"success", "say", "state", "battery"}``. ``say`` is one
@@ -110,6 +110,7 @@ class VacuumClient(Protocol):
     async def connect(self) -> bool: ...
     async def get_status(self) -> DreameStatus: ...
     async def control(self, cmd: str) -> dict: ...
+    async def get_map(self) -> dict: ...
     def disconnect(self) -> None: ...
 
 
@@ -262,7 +263,7 @@ class Link:
 
 
 class Vacuum:
-    """The six actions, each returning a spoken answer."""
+    """The actions, each returning a spoken answer."""
 
     def __init__(
         self,
@@ -401,6 +402,65 @@ class Vacuum:
 
         return await self._guarded(act, sent=True)
 
+    async def _map(self, deadline: float) -> dict[str, Any]:
+        """The decoded map (rooms, the robot's room), or Unavailable."""
+        client = await self.link.ready(deadline)
+        try:
+            m = await self._within(deadline, client.get_map())
+        except Unavailable:
+            raise Unavailable("The map is taking too long to come from the Dreame cloud.") from None
+        if not m.get("success") or not isinstance(m.get("map_data"), dict):
+            logger.warning("map fetch failed: %s", m.get("error"))
+            raise Unavailable("I can't get the vacuum's map right now.")
+        return m
+
+    async def where(self) -> dict[str, Any]:
+        async def act(deadline: float) -> dict[str, Any]:
+            r = await self._read(deadline)
+            try:
+                m = await self._map(deadline)
+            except Unavailable as e:
+                return self._answer(False, f"{e.say} The vacuum is {r.words()}.", r)
+            md = m["map_data"]
+            rooms = md.get("room_list") or []
+            room = md.get("robot_room")
+            name = room["name"] if room else None
+            if m.get("source") != "live":
+                say = f"I only have its saved map, not where it is now. The vacuum is {r.words()}."
+            elif not rooms:
+                say = (
+                    "It's on a map without any rooms, so probably somewhere it hasn't mapped before. "
+                    f"The vacuum is {r.words()}."
+                )
+            elif r.docked or md.get("docked"):
+                parts = [f"It's on its dock in {name}" if name else "It's on its dock"]
+                if r.charging == CHARGING:
+                    parts.append("charging")
+                elif r.charging == CHARGED or r.code == 13:
+                    parts.append("fully charged")
+                if r.battery is not None:
+                    parts.append(f"battery {r.battery} percent")
+                say = ", ".join(parts) + "."
+            elif name:
+                say = f"It's in {name}, {r.words()}."
+            else:
+                say = f"It's on its map but not inside any room. The vacuum is {r.words()}."
+            return self._answer(True, say, r, room=name)
+
+        return await self._guarded(act, sent=False)
+
+    async def rooms(self) -> dict[str, Any]:
+        async def act(deadline: float) -> dict[str, Any]:
+            m = await self._map(deadline)
+            names = [room["name"] for room in m["map_data"].get("room_list") or []]
+            if not names:
+                return self._answer(True, "Its map has no rooms yet.", rooms=[])
+            listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+            count = "one room" if len(names) == 1 else f"{len(names)} rooms"
+            return self._answer(True, f"The map has {count}: {listed}.", rooms=names)
+
+        return await self._guarded(act, sent=False)
+
     async def _simple(self, cmd: str, done: str, applies: Callable[[Reading], bool], nothing: str) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
             r = await self._read(deadline)
@@ -420,7 +480,8 @@ def instructions(ask_first: bool, simulated: bool) -> str:
         "Controls the user's robot vacuum through the Dreame cloud. Every answer has 'say': read it "
         "aloud as it is. vacuum_status tells what it is doing and its battery. vacuum_start starts a "
         "full clean, vacuum_pause pauses it, vacuum_stop stops it where it is, vacuum_go_home sends it "
-        "back to the dock, vacuum_find makes it beep. Call a command only when the user asks for it "
+        "back to the dock, vacuum_find makes it beep. vacuum_where says which room it is in, from its "
+        "map; vacuum_rooms names the rooms on its map. Call a command only when the user asks for it "
         "now; never start a clean on your own. When 'success' is false, read 'say' and do not retry "
         "by yourself."
     )
@@ -492,6 +553,16 @@ def build_server(vacuum: Vacuum) -> FastMCP:
     async def vacuum_find() -> dict[str, Any]:
         """Make the vacuum beep, to find it."""
         return await vacuum.find()
+
+    @mcp.tool(annotations=read_only)
+    async def vacuum_where() -> dict[str, Any]:
+        """Which room the vacuum is in, from its live map, and whether it is on its dock."""
+        return await vacuum.where()
+
+    @mcp.tool(annotations=read_only)
+    async def vacuum_rooms() -> dict[str, Any]:
+        """The names of the rooms on the vacuum's map."""
+        return await vacuum.rooms()
 
     return mcp
 

@@ -18,6 +18,7 @@ from dreame_mcp.simulator import SimulatedVacuum
 from dreame_mcp.voice import Link, Reading, Vacuum, build_server, instructions
 
 SIX = {"vacuum_status", "vacuum_start", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
+TOOLS = SIX | {"vacuum_where", "vacuum_rooms"}
 
 
 class Clock:
@@ -77,14 +78,14 @@ def test_not_charging_off_the_dock_is_not_docked():
 # -- the tools on the pretend vacuum -----------------------------------------
 
 
-async def test_exactly_six_tools_without_ask_first():
+async def test_the_tools_without_ask_first():
     async with Client(build_server(_vacuum(SimulatedVacuum()))) as c:
-        assert {t.name for t in await c.list_tools()} == SIX
+        assert {t.name for t in await c.list_tools()} == TOOLS
 
 
 async def test_ask_first_adds_confirm():
     async with Client(build_server(_vacuum(SimulatedVacuum(), ask_first=True))) as c:
-        assert {t.name for t in await c.list_tools()} == SIX | {"vacuum_confirm"}
+        assert {t.name for t in await c.list_tools()} == TOOLS | {"vacuum_confirm"}
 
 
 async def test_status_on_the_dock():
@@ -213,6 +214,7 @@ class FakeClient:
         self.hang_status = hang_status
         self.connected = False
         self.logins = 0
+        self.map_answer: dict = {"success": False, "error": "no map"}
 
     async def connect(self) -> bool:
         self.logins += 1
@@ -226,6 +228,9 @@ class FakeClient:
 
     async def control(self, cmd: str) -> dict:
         return {"success": True}
+
+    async def get_map(self) -> dict:
+        return self.map_answer
 
     def disconnect(self) -> None:
         self.connected = False
@@ -290,7 +295,7 @@ async def test_password_never_in_an_answer_or_a_log(tmp_path, monkeypatch, caplo
     client = client_mod.client_from_env(secrets_dir)
     v = _vacuum(client)
     with caplog.at_level(logging.DEBUG):
-        answers = [await _call(v, t) for t in sorted(SIX)]
+        answers = [await _call(v, t) for t in sorted(TOOLS)]
     text = json.dumps(answers) + caplog.text
     assert "hunter2-very-secret" not in text
     assert "owner@example.com" not in text
@@ -344,3 +349,61 @@ def test_discover_warning_is_dropped_and_others_kept():
     )
     assert quiet.filter(record("Failed to validate request: tools/call missing name"))
     assert quiet.filter(record("status read failed"))
+
+
+# -- where it is, and its rooms ------------------------------------------------
+
+
+async def test_where_on_the_dock():
+    a = await _call(_vacuum(SimulatedVacuum()), "vacuum_where")
+    assert a["say"] == "It's on its dock in Living room, fully charged, battery 100 percent."
+    assert a["room"] == "Living room"
+
+
+async def test_where_while_cleaning_moves_with_the_clock():
+    clock = Clock()
+    sim = SimulatedVacuum(clock=clock)
+    v = _vacuum(sim, clock=clock)
+    await v.start()
+    assert (await v.where())["say"].startswith("It's in Living room, cleaning")
+    clock.now += 31
+    assert (await v.where())["say"].startswith("It's in Kitchen, cleaning")
+
+
+async def test_rooms_are_named():
+    a = await _call(_vacuum(SimulatedVacuum()), "vacuum_rooms")
+    assert a["say"] == "The map has 3 rooms: Living room, Kitchen and Hallway."
+    assert a["rooms"] == ["Living room", "Kitchen", "Hallway"]
+
+
+def _map(**md):
+    return {"success": True, "source": "live", "map_data": md}
+
+
+async def test_where_on_a_map_without_rooms():
+    fake = FakeClient()
+    fake.map_answer = _map(room_list=[], robot_room=None, docked=False)
+    a = await _vacuum(fake).where()
+    assert a["say"].startswith("It's on a map without any rooms")
+
+
+async def test_where_from_a_saved_map_does_not_guess():
+    fake = FakeClient()
+    fake.map_answer = {**_map(room_list=[{"id": 1, "name": "Hall"}], robot_room=None), "source": "saved"}
+    a = await _vacuum(fake).where()
+    assert a["say"].startswith("I only have its saved map")
+
+
+async def test_where_without_a_map_still_gives_the_state():
+    a = await _vacuum(FakeClient()).where()
+    assert not a["success"]
+    assert (
+        a["say"]
+        == "I can't get the vacuum's map right now. The vacuum is on the dock, fully charged, battery 90 percent."
+    )
+
+
+async def test_rooms_without_a_map():
+    a = await _vacuum(FakeClient()).rooms()
+    assert not a["success"]
+    assert "map" in a["say"]

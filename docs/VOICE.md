@@ -2,7 +2,7 @@
 
 `dreame-voice-mcp` is a second, much smaller MCP server in this package, for
 voice assistants and other clients that read a one-line answer aloud. It speaks
-MCP over stdio only, and has six tools and no map, web app or sampling.
+MCP over stdio only, and has eight tools and no web app or sampling.
 
 | Tool | Does | Asks first |
 |---|---|---|
@@ -12,12 +12,20 @@ MCP over stdio only, and has six tools and no map, web app or sampling.
 | `vacuum_stop` | Stops where it is, unless there is nothing to stop | no |
 | `vacuum_go_home` | Sends it to the dock, unless it is already there | no |
 | `vacuum_find` | Makes it beep | no |
+| `vacuum_where` | Says which room it is in, from its live map, and whether it is on its dock | — |
+| `vacuum_rooms` | Names the rooms on its map | — |
 
 None of the tools takes an input. Every one answers in the same shape:
 
 ```json
 {"success": true, "say": "The vacuum is charging on the dock, battery 84 percent.", "state": "charging", "battery": 84}
 ```
+
+`vacuum_where` adds `room`, and `vacuum_rooms` adds `rooms`, a list of names.
+Room names are the ones set in the DreameHome app; unnamed rooms are
+"Room 1", "Room 2" and so on. On a map without rooms, for example a floor it
+has not mapped before, `vacuum_where` says so. When only the saved map can be
+had, it says it does not know where the vacuum is now.
 
 `say` is meant to be read aloud as it is. `state` is one short word
 (`cleaning`, `paused`, `returning`, `charging`, `docked`, `idle`, `error`, …)
@@ -84,7 +92,8 @@ only for two minutes. A wrong token closes the question.
 
 `--simulate` runs the same tools against `dreame_mcp/simulator.py`, a vacuum
 that runs on a clock. On the dock it charges, while cleaning its battery runs
-down, below 15 percent it heads home, and the trip takes 20 seconds. Every
+down, below 15 percent it heads home, and the trip takes 20 seconds. Its map
+has a living room (with the dock), a kitchen and a hallway. Every
 answer begins "Simulated:", and the server's instructions tell the client to
 say so. The tests use it, with `offline=True` for the cloud being down.
 
@@ -95,6 +104,6 @@ uv run pytest tests/test_voice.py
 ```
 
 They cover the spoken text for each state, a whole clean on the pretend
-vacuum, ask-first tokens, the cloud being down, a slow login and a slow read,
+vacuum, where it is and its rooms, ask-first tokens, the cloud being down, a slow login and a slow read,
 the wait before a new login, that no password or account name reaches an
 answer or a log, and that nothing but MCP reaches stdout.

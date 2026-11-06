@@ -131,9 +131,10 @@ If you don't have `just` installed:
 
 ### Voice assistants
 
-`dreame-voice-mcp` is a small stdio server with six tools (`vacuum_status`,
+`dreame-voice-mcp` is a small stdio server with eight tools (`vacuum_status`,
 `vacuum_start`, `vacuum_pause`, `vacuum_stop`, `vacuum_go_home`,
-`vacuum_find`) that answer in one sentence to read aloud. `--simulate` runs it
+`vacuum_find`, `vacuum_where`, `vacuum_rooms`) that answer in one sentence to
+read aloud. `--simulate` runs it
 against a pretend vacuum. See [the voice server](docs/VOICE.md).
 
 ## Map (LIDAR / floor plan)
@@ -163,7 +164,7 @@ The rendered image requires the Tasshack stack: `py-mini-racer`, `numpy`, `Pillo
 - [The Dreame Robo Hoover Saga](docs/ROBO_HOOVER_SAGA.md)  how control worked, broke, and was restored (with the map!)
 - [Configuration](docs/CONFIGURATION.md)  env vars, connection modes, ports
 - [Development](docs/DEVELOPMENT.md)  stack, recipes, five-gate verification
-- [The voice server](docs/VOICE.md)  six spoken-answer tools for voice assistants, simulate mode
+- [The voice server](docs/VOICE.md)  eight spoken-answer tools for voice assistants, simulate mode
 - [Tools & API](docs/TOOLS.md)  MCP tools, prompts, REST endpoints
 - [Troubleshooting](docs/TROUBLESHOOTING.md)  common failures and fixes
 - [Onboarding](docs/ONBOARDING.md)  first-run setup (DreameHome account)

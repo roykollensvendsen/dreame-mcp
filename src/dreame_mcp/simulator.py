@@ -12,6 +12,9 @@ states on a clock:
 
 ``offline=True`` makes every login fail, for trying the "can't reach the
 cloud" answer.
+
+Its map has three rooms. The dock is in the living room; while cleaning it
+moves from room to room every 30 s, and heading home it is in the hallway.
 """
 
 from __future__ import annotations
@@ -27,6 +30,9 @@ CHARGE_EVERY = 6.0
 DRAIN_EVERY = 12.0
 TRIP_HOME = 20.0
 LOW_BATTERY = 15
+ROOMS = [{"id": 1, "name": "Living room"}, {"id": 2, "name": "Kitchen"}, {"id": 3, "name": "Hallway"}]
+DOCK_ROOM, HALL = ROOMS[0], ROOMS[2]
+ROOM_EVERY = 30.0
 
 
 class SimulatedVacuum:
@@ -110,3 +116,21 @@ class SimulatedVacuum:
             return {"success": False, "error": f"Unknown command: {cmd}"}
         self.sent.append(cmd)
         return {"success": True, "message": f"Sent {cmd}"}
+
+    async def get_map(self) -> dict:
+        if not self._connected:
+            return {"success": False, "error": "Not connected"}
+        self._advance()
+        docked = self._state in (CHARGING_STATE, CHARGED_STATE)
+        if docked:
+            room = DOCK_ROOM
+        elif self._state == RETURNING:
+            room = HALL
+        else:
+            room = ROOMS[int((self._clock() - self._since) // ROOM_EVERY) % len(ROOMS)]
+        return {
+            "success": True,
+            "source": "live",
+            "object_name": "simulated",
+            "map_data": {"rooms": len(ROOMS), "room_list": ROOMS, "robot_room": room, "docked": docked},
+        }
