@@ -42,5 +42,6 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
   `DreameStatus.is_charging`, which counts "not charging" (2) as charging.
 - Idle off or on the dock looks the same (state 2, charging 2), so the answer
   says only "idle".
-- Where it is and the map: see the `robot-map` skill. A `vacuum_where`
-  tool is proposed (room from the live map, relocation status), not built.
+- `vacuum_where` and `vacuum_rooms` read the live map (`get_map`), which
+  asks the robot to upload it; about 0.5-2 s. The map side is in the
+  `robot-map` skill.
