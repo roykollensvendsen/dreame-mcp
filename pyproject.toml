@@ -25,6 +25,10 @@ dependencies = [
     "prefab-ui>=0.14.0",
 ]
 
+[project.scripts]
+dreame-mcp = "dreame_mcp.server:main"
+dreame-voice-mcp = "dreame_mcp.voice:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
