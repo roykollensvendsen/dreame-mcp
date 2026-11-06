@@ -330,3 +330,17 @@ def test_stdout_carries_only_mcp():
     proc.wait(timeout=10)
     assert rest.strip() == ""
     assert out[1]["result"]["structuredContent"]["say"].startswith("Simulated: The vacuum is on the dock")
+
+
+def test_discover_warning_is_dropped_and_others_kept():
+    from dreame_mcp.voice import _QuietDiscover
+
+    def record(msg: str) -> logging.LogRecord:
+        return logging.LogRecord("root", logging.WARNING, __file__, 1, msg, None, None)
+
+    quiet = _QuietDiscover()
+    assert not quiet.filter(
+        record("Failed to validate request: 31 validation errors ... input_value='server/discover'")
+    )
+    assert quiet.filter(record("Failed to validate request: tools/call missing name"))
+    assert quiet.filter(record("status read failed"))

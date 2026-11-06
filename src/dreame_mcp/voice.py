@@ -496,6 +496,20 @@ def build_server(vacuum: Vacuum) -> FastMCP:
     return mcp
 
 
+class _QuietDiscover(logging.Filter):
+    """Drop the mcp library's long warning for a server/discover request.
+
+    Newer MCP clients ask server/discover first; this mcp version does not
+    know it, answers with an error, the client falls back, and the library
+    logs a 30-line validation warning to the root logger every time.
+    Other validation warnings still get through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        return not (message.startswith("Failed to validate request") and "server/discover" in message)
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description="Voice-sized MCP server (stdio) for a Dreame robot vacuum")
     p.add_argument("--simulate", action="store_true", help="a pretend vacuum: no login, no cloud")
@@ -511,6 +525,7 @@ def main(argv: list[str] | None = None) -> None:
     args = p.parse_args(argv)
 
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    logging.getLogger().addFilter(_QuietDiscover())
 
     if args.simulate:
         from .simulator import SimulatedVacuum
