@@ -284,6 +284,8 @@ _ACTION_MAP = {
     "stop": (4, 2),  # STOP
     "find_robot": (7, 1),  # LOCATE
 }
+# DreameVacuumStatus.SEGMENT_CLEANING, sent with START_CUSTOM (4.1) to clean rooms.
+_SEGMENT_CLEANING = 18
 
 
 def _pick_cloud_device(devices: list, want_ip: str | None) -> dict | None:
@@ -756,6 +758,55 @@ class DreameHomeClient:
             return {"success": False, "error": f"No response for {cmd}"}
         except Exception as e:
             logger.exception("control(%s) failed", cmd)
+            return {"success": False, "error": str(e)}
+
+    async def clean_rooms(self, room_ids: list[int]) -> dict:
+        """Start cleaning the given rooms (map segment ids), in that order. Timeout-guarded."""
+        loop = asyncio.get_event_loop()
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(self._executor, self._clean_rooms_sync, list(room_ids)),
+                timeout=EXECUTOR_TIMEOUT,
+            )
+        except TimeoutError:
+            logger.error("clean_rooms() timed out after %ds", EXECUTOR_TIMEOUT)
+            return {"success": False, "error": f"Room clean request timed out ({EXECUTOR_TIMEOUT}s)"}
+
+    def _clean_rooms_sync(self, room_ids: list[int]) -> dict:
+        """Room cleaning as the DreameHome app sends it.
+
+        ref: DreameVacuumDevice.clean_segment / start_custom in the reference
+        device.py. Action 4.1 (START_CUSTOM) with status 18 (SEGMENT_CLEANING)
+        and, in property 4.10, ``{"selects": [[room, times, suction, water, n], ...]}``.
+        Suction and water are the robot's current settings (4.4, 4.5). The
+        last field is 1 on robots with per-room settings (property 4.26
+        present) and the room's position in the list otherwise.
+        """
+        if not self._protocol:
+            return {"success": False, "error": "Not connected"}
+        if not room_ids:
+            return {"success": False, "error": "No rooms given"}
+        try:
+            props = [
+                {"did": d, "siid": 4, "piid": p}
+                for d, p in zip(_miot_did_slots(3, str(self._did) if self._did else None), (4, 5, 26), strict=True)
+            ]
+            got = self._safe_call("send", "get_properties", props) or []
+            settings = {r.get("piid"): r.get("value") for r in got if r.get("code", 0) == 0 and "value" in r}
+            suction = settings.get(4) if settings.get(4) is not None else 1
+            water = settings.get(5) if settings.get(5) is not None else 2
+            per_room = settings.get(26) is not None
+            selects = [[rid, 1, suction, water, 1 if per_room else n] for n, rid in enumerate(room_ids, 1)]
+            payload = [
+                {"piid": 1, "value": _SEGMENT_CLEANING},
+                {"piid": 10, "value": json.dumps({"selects": selects}, separators=(",", ":"))},
+            ]
+            result = self._safe_call("send", "action", {"did": str(self._did), "siid": 4, "aiid": 1, "in": payload})
+            if isinstance(result, dict) and result.get("code", 0) == 0:
+                return {"success": True, "message": f"Sent room clean {room_ids}", "result": result}
+            return {"success": False, "error": f"Room clean not accepted: {result!r}"}
+        except Exception as e:
+            logger.exception("clean_rooms(%s) failed", room_ids)
             return {"success": False, "error": str(e)}
 
     def _safe_call(self, method: str, *args, **kwargs) -> Any:

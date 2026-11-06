@@ -204,3 +204,50 @@ async def test_map_tool_over_mcp_sends_text_and_image(monkeypatch):
     assert [b.type for b in result.content] == ["text", "image"]
     assert "LIDAR Map Summary" in result.data
     assert status.structured_content == {"result": status.data}
+
+
+# -- cleaning rooms -----------------------------------------------------------
+
+
+def _room_client(monkeypatch, settings, answer=None):
+    c = DreameHomeClient(did="42")
+    c._protocol = object()
+    sent = []
+
+    def call(method, verb, payload):
+        sent.append((verb, payload))
+        if verb == "get_properties":
+            return [{"siid": 4, "piid": p, "code": 0, "value": v} for p, v in settings.items()]
+        return {"code": 0} if answer is None else answer
+
+    monkeypatch.setattr(c, "_safe_call", call)
+    return c, sent
+
+
+def test_clean_rooms_sends_start_custom_with_the_rooms(monkeypatch):
+    c, sent = _room_client(monkeypatch, {4: 2, 5: 3})
+    assert c._clean_rooms_sync([3, 1])["success"]
+    verb, payload = sent[1]
+    assert verb == "action"
+    assert (payload["siid"], payload["aiid"]) == (4, 1)
+    status, props = payload["in"]
+    assert status == {"piid": 1, "value": 18}
+    assert props["piid"] == 10
+    assert props["value"] == '{"selects":[[3,1,2,3,1],[1,1,2,3,2]]}'
+
+
+def test_clean_rooms_on_a_robot_with_per_room_settings(monkeypatch):
+    c, sent = _room_client(monkeypatch, {4: 1, 5: 2, 26: 0})
+    c._clean_rooms_sync([3, 1])
+    assert sent[1][1]["in"][1]["value"] == '{"selects":[[3,1,1,2,1],[1,1,1,2,1]]}'
+
+
+def test_clean_rooms_refused(monkeypatch):
+    c, _ = _room_client(monkeypatch, {4: 1, 5: 2}, answer={"code": -1})
+    assert not c._clean_rooms_sync([1])["success"]
+
+
+def test_clean_rooms_needs_rooms(monkeypatch):
+    c, sent = _room_client(monkeypatch, {})
+    assert not c._clean_rooms_sync([])["success"]
+    assert sent == []
