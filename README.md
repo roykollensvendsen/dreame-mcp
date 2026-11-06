@@ -56,6 +56,7 @@ Protocol layer extracted from [Tasshack/dreame-vacuum](https://github.com/Tassha
 |---|---|---|
 | `DREAME_USER` |  | DreameHome email or phone |
 | `DREAME_PASSWORD` |  | DreameHome password |
+| `DREAME_SECRETS_DIR` |  | Folder with files `user` and `password` (same as `--secrets-dir`); overrides the two above |
 | `DREAME_COUNTRY` |  | Cloud region, default `eu` |
 | `DREAME_DID` |  | Device ID, auto-discovered if single device |
 | `DREAME_AUTH_KEY` |  | Refresh token from previous login (speeds up startup) |
@@ -128,6 +129,13 @@ If you don't have `just` installed:
 }
 ```
 
+### Voice assistants
+
+`dreame-voice-mcp` is a small stdio server with six tools (`vacuum_status`,
+`vacuum_start`, `vacuum_pause`, `vacuum_stop`, `vacuum_go_home`,
+`vacuum_find`) that answer in one sentence to read aloud. `--simulate` runs it
+against a pretend vacuum. See [the voice server](docs/VOICE.md).
+
 ## Map (LIDAR / floor plan)
 
 **Map data does not require miIO** on this server: it uses DreameHome cloud + the Tasshack ref at `DREAME_REF_PATH`. Local miIO is optional and often unavailable on DreameHome-only firmware.
@@ -155,6 +163,7 @@ The rendered image requires the Tasshack stack: `py-mini-racer`, `numpy`, `Pillo
 - [The Dreame Robo Hoover Saga](docs/ROBO_HOOVER_SAGA.md)  how control worked, broke, and was restored (with the map!)
 - [Configuration](docs/CONFIGURATION.md)  env vars, connection modes, ports
 - [Development](docs/DEVELOPMENT.md)  stack, recipes, five-gate verification
+- [The voice server](docs/VOICE.md)  six spoken-answer tools for voice assistants, simulate mode
 - [Tools & API](docs/TOOLS.md)  MCP tools, prompts, REST endpoints
 - [Troubleshooting](docs/TROUBLESHOOTING.md)  common failures and fixes
 - [Onboarding](docs/ONBOARDING.md)  first-run setup (DreameHome account)
