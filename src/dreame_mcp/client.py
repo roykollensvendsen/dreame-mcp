@@ -1177,8 +1177,18 @@ def _map_bytes_looks_like_error_json(raw: bytes | None) -> bool:
 
 def _map_object_to_dict(map_data) -> dict[str, Any]:
     """Build REST map_data from a Tasshack decoded map object (rooms, path, areas, dimensions)."""
+    segments = getattr(map_data, "segments", {}) or {}
+    room_list = [
+        {"id": int(sid), "name": getattr(seg, "custom_name", None) or getattr(seg, "name", None) or f"Room {sid}"}
+        for sid, seg in sorted(segments.items(), key=lambda kv: int(kv[0]))
+    ]
+    robot_segment = getattr(map_data, "robot_segment", None)
+    robot_room = next((r for r in room_list if r["id"] == robot_segment), None) if robot_segment else None
     d: dict[str, Any] = {
-        "rooms": len(getattr(map_data, "segments", {}) or {}),
+        "rooms": len(segments),
+        "room_list": room_list,
+        "robot_room": robot_room,
+        "docked": getattr(map_data, "docked", None),
         "robot_position": _point_to_dict(getattr(map_data, "robot_position", None)),
         "charger_position": _point_to_dict(getattr(map_data, "charger_position", None)),
         "path": [_point_to_dict(p) for p in (getattr(map_data, "path", []) or [])],

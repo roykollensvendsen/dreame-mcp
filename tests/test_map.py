@@ -14,6 +14,7 @@ import base64
 import io
 
 import pytest
+from fastmcp.tools import ToolResult
 
 from dreame_mcp.client import MAP_FETCH_TIMEOUT, DreameHomeClient
 from dreame_mcp.portmanteau import (
@@ -40,12 +41,16 @@ class TestMapFetchMocked:
         assert data["map_data"]["rooms"] == 3
 
         result = await dreame_tool(ctx=None, operation="map")
-        assert isinstance(result, str)
-        assert "## LIDAR Map Summary" in result
-        assert "Rooms" in result
-        assert "[MAP ERROR]" not in result
-        # Optional note when PNG present
-        assert "Image data received" in result or "raw" in result.lower()
+        # With a rendered map, the text comes with the image attached.
+        assert isinstance(result, ToolResult)
+        assert [c.type for c in result.content] == ["text", "image"]
+        text = result.structured_content["result"]
+        assert result.content[0].text == text
+        assert result.content[1].mimeType == "image/png"
+        assert "## LIDAR Map Summary" in text
+        assert "Rooms" in text
+        assert "[MAP ERROR]" not in text
+        assert "attached as an image" in text
 
     @pytest.mark.asyncio
     async def test_map_success_without_image(self, patched_state, mock_map_response_no_image):

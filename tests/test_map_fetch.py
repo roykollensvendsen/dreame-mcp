@@ -5,6 +5,7 @@ Offline: the cloud, decoder and renderer are fakes; no robot or map file involve
 
 from __future__ import annotations
 
+import base64
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -125,3 +126,81 @@ def test_request_map_reads_the_object_name(out, expected, monkeypatch):
     method, verb, payload = sent[0]
     assert (method, verb) == ("send", "action")
     assert (payload["siid"], payload["aiid"]) == (6, 1)
+
+
+# -- rooms, the robot's room, and what the map tool shows -------------------------
+
+
+def _decoded(robot_segment=None, docked=None):
+    rooms = {
+        2: SimpleNamespace(name="Room 2", custom_name="Kitchen"),
+        1: SimpleNamespace(name="Room 1", custom_name=None),
+    }
+    return SimpleNamespace(
+        segments=rooms,
+        robot_segment=robot_segment,
+        docked=docked,
+        robot_position=SimpleNamespace(x=10, y=20),
+        charger_position=None,
+    )
+
+
+def test_room_list_uses_custom_names_and_finds_the_robot():
+    d = client_mod._map_object_to_dict(_decoded(robot_segment=2, docked=False))
+    assert d["room_list"] == [{"id": 1, "name": "Room 1"}, {"id": 2, "name": "Kitchen"}]
+    assert d["robot_room"] == {"id": 2, "name": "Kitchen"}
+    assert d["docked"] is False
+
+
+def test_robot_outside_every_room():
+    d = client_mod._map_object_to_dict(_decoded(robot_segment=0))
+    assert d["robot_room"] is None
+
+
+def test_summary_names_the_rooms_and_where_the_robot_is():
+    from dreame_mcp.portmanteau import _format_map_md
+
+    data = {
+        "success": True,
+        "source": "live",
+        "object_name": "o",
+        "map_data": client_mod._map_object_to_dict(_decoded(robot_segment=2, docked=True)),
+    }
+    text = _format_map_md(data)
+    assert "Room 1 (id 1), Kitchen (id 2)" in text
+    assert "on its dock, in Kitchen (id 2)" in text
+
+
+def test_summary_of_a_saved_map_does_not_claim_a_position():
+    from dreame_mcp.portmanteau import _format_map_md
+
+    data = {
+        "success": True,
+        "source": "saved",
+        "object_name": "o",
+        "map_data": client_mod._map_object_to_dict(_decoded(robot_segment=2)),
+    }
+    text = _format_map_md(data)
+    assert "saved" in text
+    assert "Robot:" not in text
+    assert "Robot Position" not in text
+
+
+async def test_map_tool_over_mcp_sends_text_and_image(monkeypatch):
+    from fastmcp import Client
+
+    from dreame_mcp import server
+
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 16).decode()
+
+    async def fake_map(_client):
+        return {"success": True, "source": "live", "object_name": "o", "image": png, "map_data": None}
+
+    monkeypatch.setattr("dreame_mcp.portmanteau.fetch_map_data", fake_map)
+    monkeypatch.setitem(server._state, "client", object())
+    async with Client(server.mcp) as c:
+        result = await c.call_tool("dreame_tool", {"operation": "map"})
+        status = await c.call_tool("dreame_tool", {"operation": "battery"})
+    assert [b.type for b in result.content] == ["text", "image"]
+    assert "LIDAR Map Summary" in result.data
+    assert status.structured_content == {"result": status.data}

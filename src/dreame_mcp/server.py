@@ -23,6 +23,7 @@ from .activity_log import ActivityLog, create_log_router, install_log_handler
 from .agentic import dreame_agentic_workflow
 from .client import DreameHomeClient, client_from_env
 from .portmanteau import (
+    DREAME_TOOL_OUTPUT_SCHEMA,
     dreame_tool,
     execute_control_data,
     fetch_map_data,
@@ -234,7 +235,7 @@ async def dreame_help(category: str | None = None, topic: str | None = None) -> 
 # Register MCP tools + prompts
 # ---------------------------------------------------------------------------
 
-mcp.tool(annotations=_MUTATING)(dreame_tool)
+mcp.tool(annotations=_MUTATING, output_schema=DREAME_TOOL_OUTPUT_SCHEMA)(dreame_tool)
 mcp.tool(annotations=_READ_ONLY)(dreame_help)
 mcp.tool(annotations=_MUTATING)(dreame_agentic_workflow)
 

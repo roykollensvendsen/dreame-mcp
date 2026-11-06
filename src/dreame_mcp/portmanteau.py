@@ -5,11 +5,15 @@ Talks to DreameHome cloud via DreameHomeClient (no local token needed).
 
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import datetime
 from typing import Annotated, Literal
 
 from fastmcp import Context
+from fastmcp.tools import ToolResult
+from fastmcp.utilities.types import Image
+from mcp.types import TextContent
 from pydantic import Field
 
 from .state import _state
@@ -49,7 +53,7 @@ async def dreame_tool(
         dict | None,
         Field(description="Optional structured payload (unused by current operations)."),
     ] = None,
-) -> str:
+) -> str | ToolResult:
     """Unified control tool for Dreame robot vacuum (DreameHome cloud).
 
     [RATIONALE] Consolidates telemetry (status, battery, map) and control
@@ -87,7 +91,7 @@ async def dreame_tool(
 
         if op == "map":
             data = await fetch_map_data(client)
-            return _format_map_md(data)
+            return _map_result(data)
 
         if op in ("start_clean", "stop", "pause", "go_home", "find_robot"):
             data = await execute_control_data(client, op)
@@ -200,6 +204,32 @@ def _format_status_md(data: dict) -> str:
     return "\n".join(lines)
 
 
+# dreame_tool answers in text; the map operation adds the picture. This keeps
+# the schema a plain-text tool had, so its text stays in structured output.
+DREAME_TOOL_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {"result": {"type": "string"}},
+    "required": ["result"],
+    "x-fastmcp-wrap-result": True,
+}
+
+
+def _map_result(data: dict) -> str | ToolResult:
+    """The map summary, with the rendered map attached as an image when there is one."""
+    text = _format_map_md(data)
+    image = data.get("image") if data.get("success") else None
+    if not image:
+        return text
+    try:
+        png = base64.b64decode(image)
+    except (ValueError, TypeError):
+        return text
+    return ToolResult(
+        content=[TextContent(type="text", text=text), Image(data=png, format="png").to_image_content()],
+        structured_content={"result": text},
+    )
+
+
 def _format_map_md(data: dict) -> str:
     if not data.get("success"):
         error_msg = data.get("error", "Unknown error")
@@ -208,17 +238,35 @@ def _format_map_md(data: dict) -> str:
             "> [!TIP]\n> Ensure the robot has completed its first mapping run."
         )
 
+    source = data.get("source", "live")
     lines = [
         "## LIDAR Map Summary",
+        f"- **Map:** {'live' if source == 'live' else 'saved (the live map was unavailable; robot position is not current)'}",
         f"- **Object Name:** `{data.get('object_name', 'None')}`",
-        f"- **Raw Size:** {data.get('raw_bytes', 0) / 1024:.1f} KB",
     ]
+    if data.get("raw_bytes"):
+        lines.append(f"- **Raw Size:** {data.get('raw_bytes', 0) / 1024:.1f} KB")
 
     md = data.get("map_data")
     if isinstance(md, dict):
-        lines.append(f"- **Rooms Detected:** {md.get('rooms', 0)}")
+        rooms = md.get("room_list") or []
+        if rooms:
+            lines.append("- **Rooms:** " + ", ".join(f"{r['name']} (id {r['id']})" for r in rooms))
+        else:
+            lines.append(f"- **Rooms Detected:** {md.get('rooms', 0)}")
+        if source == "live":
+            room = md.get("robot_room")
+            where = []
+            if md.get("docked"):
+                where.append("on its dock")
+            if room:
+                where.append(f"in {room['name']} (id {room['id']})")
+            elif rooms:
+                where.append("not inside a known room")
+            if where:
+                lines.append("- **Robot:** " + ", ".join(where))
         pos = md.get("robot_position")
-        if pos:
+        if pos and source == "live":
             lines.append(f"- **Robot Position:** ({pos.get('x', 0)}, {pos.get('y', 0)})")
 
         path = md.get("path", [])
@@ -232,7 +280,7 @@ def _format_map_md(data: dict) -> str:
             lines.append(f"- **Restricted Zones:** {len(vw)} Walls, {len(nga)} No-Go, {len(nma)} No-Mop")
 
     if "image" in data:
-        lines.append("\n> [!NOTE]\n> Image data received. Use the webapp to view the full rendered map.")
+        lines.append("\n> [!NOTE]\n> The rendered map is attached as an image.")
 
     if data.get("render_error"):
         lines.append(f"\n> [!WARNING]\n> Render error: {data['render_error']}")
