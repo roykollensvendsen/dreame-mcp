@@ -31,6 +31,13 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
    `claude-voice plugins approve vacuum` himself. Never approve for him.
 3. Try it simulated first, then one real `vacuum_status` (read-only), before
    anything that moves the robot.
+4. A tool's description opens with a short, whole sentence on a line of its
+   own that says what sets it apart; details go on the next lines. The Claude
+   app shows the voice an unloaded tool as one line, the connector's name and
+   the description cut at about 80 characters, so only some 26 of ours show.
+   No two tools open with the same word. `test_each_tool_opens_with_a_short_whole_sentence_of_its_own`
+   checks it; the bridge also logs any plugin tool it sees cut. The guide is
+   claude-voice's `docs/tool-descriptions.md`.
 
 ## Lessons
 
