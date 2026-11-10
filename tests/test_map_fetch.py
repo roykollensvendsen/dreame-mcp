@@ -100,6 +100,27 @@ def test_saved_map_when_the_live_map_is_missing(map_client, monkeypatch):
     assert result["image"]
 
 
+def test_saved_map_when_the_live_map_cannot_be_decrypted(map_client, monkeypatch):
+    saved = SimpleNamespace(segments={1: 1}, robot_position=None, charger_position=None)
+    monkeypatch.setattr(map_client, "_request_map_object_sync", lambda: "obj/1,KEY")
+    monkeypatch.setattr(map_client, "_fetch_map_bytes_from_cloud_url", lambda name: b"RAW")
+    monkeypatch.setattr(FakeDecoder, "decode_map", classmethod(lambda cls, *a: None))
+    monkeypatch.setattr(map_client, "_fetch_saved_map_sync", lambda: (saved, "obj/9"))
+    result = map_client._get_map_sync()
+    assert result["success"] and result["source"] == "saved"
+    assert "wrong key" in result["live_error"]
+
+
+def test_undecryptable_live_map_without_a_saved_map(map_client, monkeypatch):
+    monkeypatch.setattr(map_client, "_request_map_object_sync", lambda: "obj/1,KEY")
+    monkeypatch.setattr(map_client, "_fetch_map_bytes_from_cloud_url", lambda name: b"RAW")
+    monkeypatch.setattr(FakeDecoder, "decode_map", classmethod(lambda cls, *a: None))
+    monkeypatch.setattr(map_client, "_fetch_saved_map_sync", lambda: None)
+    result = map_client._get_map_sync()
+    assert result["success"] and result["source"] == "live"
+    assert "render_error" in result
+
+
 def test_failure_when_neither_map_can_be_had(map_client, monkeypatch):
     monkeypatch.setattr(map_client, "_request_map_object_sync", lambda: "obj/1,KEY")
     monkeypatch.setattr(map_client, "_fetch_map_bytes_from_cloud_url", lambda name: None)
