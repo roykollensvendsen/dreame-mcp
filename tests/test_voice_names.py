@@ -1,8 +1,8 @@
 """Names the voice can tell apart (the plugin standard, rule 1).
 
 The voice picks a tool by its name and the first line of its description, often
-from something heard in a car. Names that sound alike, such as vacuum_start and
-vacuum_stop, are the ones it can mix up. Each such pair is listed here, with
+from something heard in a car. Names that sound alike are the ones it can mix up:
+vacuum_start and vacuum_stop were, so the start became vacuum_clean_all. Each such pair is listed here, with
 what keeps the two apart, so a new look-alike cannot slip in unnoticed.
 """
 
@@ -18,11 +18,8 @@ from dreame_mcp.voice import Link, Vacuum, build_server
 
 #: Every pair of tools whose names sound alike, and what tells them apart.
 LOOK_ALIKE: dict[frozenset[str], str] = {
-    frozenset({"vacuum_start", "vacuum_stop"}): (
-        "the riskiest pair: 'Full clean of the home.' against 'Stop where it is.'"
-    ),
-    frozenset({"vacuum_start", "vacuum_status"}): (
-        "'Full clean of the home.' against 'State and battery now.'; status only reads"
+    frozenset({"vacuum_clean_all", "vacuum_clean_rooms"}): (
+        "'Full clean of the home.' against 'Clean only named rooms.'; the rooms clean needs room names"
     ),
     frozenset({"vacuum_status", "vacuum_stop"}): (
         "'State and battery now.' against 'Stop where it is.'; status only reads"
@@ -56,7 +53,13 @@ async def _tools() -> dict[str, str]:
 
 def test_the_check_finds_start_and_stop():
     assert sound_alike("vacuum_start", "vacuum_stop")
+    assert not sound_alike("vacuum_clean_all", "vacuum_stop")
     assert not sound_alike("vacuum_find", "vacuum_where")
+
+
+async def test_the_full_clean_is_not_called_start():
+    # Roy's choice, 2026-11-10: "start" and "stop" sounded alike by voice.
+    assert "vacuum_start" not in await _tools()
 
 
 async def test_names_that_sound_alike_are_listed():

@@ -24,7 +24,7 @@ VISIBLE = 26
 
 
 async def _tools() -> list:
-    """Every tool in both modes; vacuum_start's text differs with --ask-first."""
+    """Every tool in both modes; vacuum_clean_all's text differs with --ask-before-start."""
     tools = []
     for ask_first in (False, True):
         vacuum = Vacuum(Link(SimulatedVacuum()), ask_first=ask_first, simulated=True, settle=0)

@@ -7,7 +7,7 @@ MCP over stdio only, and has nine tools and no web app or sampling.
 | Tool | Does | Asks first |
 |---|---|---|
 | `vacuum_status` | Says what the vacuum is doing and its battery | — |
-| `vacuum_start` | Starts a full clean, unless it is already cleaning | only with `--ask-before-start` |
+| `vacuum_clean_all` | Starts a full clean, unless it is already cleaning | only with `--ask-before-start` |
 | `vacuum_pause` | Pauses a clean, unless there is nothing to pause | no |
 | `vacuum_stop` | Stops where it is, unless there is nothing to stop | no |
 | `vacuum_go_home` | Sends it to the dock, unless it is already there | no |
@@ -47,7 +47,7 @@ for a client that wants to act on it.
 dreame-voice-mcp --simulate                          # a pretend vacuum: no login, no cloud
 dreame-voice-mcp --secrets-dir ~/.config/dreame      # login read from files 'user' and 'password'
 dreame-voice-mcp                                     # login from DREAME_USER / DREAME_PASSWORD or .env
-dreame-voice-mcp --ask-before-start                  # vacuum_start asks; vacuum_confirm(token) starts
+dreame-voice-mcp --ask-before-start                  # vacuum_clean_all asks; vacuum_confirm(token) starts
 ```
 
 Run it from the repository folder (`uv run dreame-voice-mcp …`), so it finds
@@ -93,7 +93,7 @@ for a captcha.
 ## Asking first
 
 Every command can be undone by another, so by default none asks. With
-`--ask-before-start`, `vacuum_start` answers with a question and a token
+`--ask-before-start`, `vacuum_clean_all` answers with a question and a token
 (`"question": true, "token": "…"`), and a seventh tool, `vacuum_confirm(token)`,
 starts the clean. The token works once, only for the latest question, and
 only for two minutes. A wrong token closes the question.

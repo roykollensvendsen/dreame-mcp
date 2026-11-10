@@ -16,7 +16,7 @@ Run it:
     dreame-voice-mcp                                  # login from env / .env
     dreame-voice-mcp --simulate                       # a pretend vacuum
 
-``--ask-before-start`` makes ``vacuum_start`` ask first and adds
+``--ask-before-start`` makes ``vacuum_clean_all`` ask first and adds
 ``vacuum_confirm``, which starts the clean only with the token from that
 question.
 
@@ -567,7 +567,7 @@ class Vacuum:
 def instructions(ask_first: bool, simulated: bool) -> str:
     text = (
         "Controls the user's robot vacuum through the Dreame cloud. Every answer has 'say': read it "
-        "aloud as it is. vacuum_status tells what it is doing and its battery. vacuum_start starts a "
+        "aloud as it is. vacuum_status tells what it is doing and its battery. vacuum_clean_all starts a "
         "full clean, vacuum_pause pauses it, vacuum_stop stops it where it is, vacuum_go_home sends it "
         "back to the dock, vacuum_find makes it beep. vacuum_where says which room it is in, from its "
         "map; vacuum_rooms names the rooms on its map; vacuum_clean_rooms cleans the rooms the user names, "
@@ -577,7 +577,7 @@ def instructions(ask_first: bool, simulated: bool) -> str:
     )
     if ask_first:
         text += (
-            " vacuum_start asks first: read its question aloud and call vacuum_confirm with its token "
+            " vacuum_clean_all asks first: read its question aloud and call vacuum_confirm with its token "
             "only if the user clearly says yes. If they say anything else, do not confirm."
         )
     return (SIMULATED + text) if simulated else text
@@ -620,7 +620,7 @@ def build_server(vacuum: Vacuum) -> FastMCP:
     )
 
     @mcp.tool(annotations=acts, description=start_doc)
-    async def vacuum_start() -> dict[str, Any]:
+    async def vacuum_clean_all() -> dict[str, Any]:
         return await vacuum.start()
 
     if vacuum.ask_first:
@@ -629,7 +629,7 @@ def build_server(vacuum: Vacuum) -> FastMCP:
         async def vacuum_confirm(token: str) -> dict[str, Any]:
             """Yes to the asked clean.
 
-            Start the clean the user just said yes to, with the token from vacuum_start's question.
+            Start the clean the user just said yes to, with the token from vacuum_clean_all's question.
             """
             return await vacuum.confirm(token)
 
@@ -637,7 +637,7 @@ def build_server(vacuum: Vacuum) -> FastMCP:
     async def vacuum_pause() -> dict[str, Any]:
         """Pause the clean.
 
-        vacuum_start carries on from there.
+        vacuum_clean_all carries on from there.
         """
         return await vacuum.pause()
 
@@ -716,7 +716,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--ask-before-start",
         action="store_true",
-        help="vacuum_start asks first; vacuum_confirm starts the clean",
+        help="vacuum_clean_all asks first; vacuum_confirm starts the clean",
     )
     args = p.parse_args(argv)
 
