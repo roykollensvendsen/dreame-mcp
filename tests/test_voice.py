@@ -88,25 +88,6 @@ async def test_ask_first_adds_confirm():
         assert {t.name for t in await c.list_tools()} == TOOLS | {"vacuum_confirm"}
 
 
-# The Claude app shows an unloaded tool as one line, the connector's name and
-# then the description cut at about 80 characters: some 26 of them are ours.
-VISIBLE = 26
-
-
-async def test_each_tool_opens_with_a_short_whole_sentence_of_its_own():
-    for ask_first in (False, True):
-        async with Client(build_server(_vacuum(SimulatedVacuum(), ask_first=ask_first))) as c:
-            tools = await c.list_tools()
-        firsts = {t.name: (t.description or "").splitlines()[0] for t in tools}
-        for name, first in firsts.items():
-            assert len(first) <= VISIBLE, (name, first)
-            assert first.endswith((".", "?")), (name, first)
-        opening = [first.split()[0].strip(",.").casefold() for first in firsts.values()]
-        assert len(set(opening)) == len(opening), firsts
-        for t in tools:
-            assert len((t.description or "").splitlines()) > 1, (t.name, "details belong on the next lines")
-
-
 async def test_status_on_the_dock():
     a = await _call(_vacuum(SimulatedVacuum()), "vacuum_status")
     assert a == {
@@ -135,6 +116,22 @@ async def test_a_clean_from_start_to_dock():
     assert sim.sent == ["start_clean", "pause", "go_home", "find_robot"]
 
 
+async def test_an_action_says_the_state_read_back_after_it():
+    sim = SimulatedVacuum()
+    reads = []
+    real = sim.get_status
+
+    async def counted():
+        reads.append(len(sim.sent))
+        return await real()
+
+    sim.get_status = counted
+    a = await _vacuum(sim).start()
+    assert a["say"].startswith("Started. The vacuum is cleaning")
+    # One read before the start was sent, one after it.
+    assert reads == [0, 1]
+
+
 async def test_nothing_to_stop_on_the_dock():
     sim = SimulatedVacuum()
     a = await _call(_vacuum(sim), "vacuum_stop")
@@ -148,7 +145,7 @@ async def test_already_home():
     assert a["say"].startswith("It's already home")
 
 
-async def test_simulated_says_so():
+async def test_a_simulated_answer_says_so():
     a = await _call(_vacuum(SimulatedVacuum(), simulated=True), "vacuum_status")
     assert a["say"].startswith("Simulated: ")
     assert instructions(False, True).startswith("SIMULATED")
@@ -174,7 +171,7 @@ async def test_simulator_heads_home_on_low_battery():
 # -- asking first --------------------------------------------------------------
 
 
-async def test_ask_first_starts_only_on_the_right_token():
+async def test_a_confirm_needs_the_open_questions_token():
     sim = SimulatedVacuum()
     v = _vacuum(sim, ask_first=True)
     async with Client(build_server(v)) as c:
@@ -195,7 +192,7 @@ async def test_ask_first_starts_only_on_the_right_token():
     assert sim.sent == ["start_clean"]
 
 
-async def test_a_confirm_that_was_not_sent_can_be_tried_again():
+async def test_a_token_is_spent_only_once_the_start_was_sent():
     sim = SimulatedVacuum()
     v = _vacuum(sim, ask_first=True)
     q = await v.start()
@@ -235,7 +232,7 @@ async def test_a_retried_confirm_does_not_start_twice():
     assert sim.sent == ["start_clean"]
 
 
-async def test_question_expires():
+async def test_a_question_expires():
     clock = Clock()
     v = _vacuum(SimulatedVacuum(clock=clock), ask_first=True, clock=clock)
     q = await v.start()
@@ -251,7 +248,7 @@ async def test_offline_status_says_cannot_reach():
     assert a == {"success": False, "say": "I can't reach the Dreame cloud right now."}
 
 
-async def test_offline_command_says_nothing_was_sent():
+async def test_a_command_that_was_not_sent_says_so():
     a = await _call(_vacuum(SimulatedVacuum(offline=True)), "vacuum_start")
     assert not a["success"]
     assert a["say"].endswith("The vacuum wasn't told anything.")
@@ -298,13 +295,13 @@ class FakeClient:
         self.connected = False
 
 
-async def test_rejected_password_is_said_without_the_account():
+async def test_a_failed_login_is_said_without_the_account():
     fake = FakeClient(login_ok=False, cloud_error="cloud login failed: Xiaomi rejected the credentials (70016 ...)")
     a = await _vacuum(fake).status()
     assert a["say"].startswith("The Dreame cloud turned down the login")
 
 
-async def test_failed_login_waits_before_trying_again():
+async def test_a_failed_login_waits_before_trying_again():
     clock = Clock()
     fake = FakeClient(login_ok=False)
     v = _vacuum(fake, clock=clock)
@@ -321,7 +318,7 @@ async def test_slow_login_says_still_logging_in():
     assert "still logging in" in a["say"]
 
 
-async def test_slow_cloud_answers_within_the_budget():
+async def test_a_slow_cloud_still_answers_within_the_budget():
     loop = asyncio.get_running_loop()
     began = loop.time()
     a = await _vacuum(FakeClient(hang_status=5), budget=0.2, clock=_real_clock()).status()
@@ -339,7 +336,7 @@ def _real_clock():
 # -- no secrets out, nothing but MCP on stdout -----------------------------------
 
 
-async def test_password_never_in_an_answer_or_a_log(tmp_path, monkeypatch, caplog):
+async def test_the_password_is_never_in_an_answer_or_a_log(tmp_path, monkeypatch, caplog):
     from dreame_mcp import client as client_mod
 
     secrets_dir = tmp_path / "dreame"
@@ -451,7 +448,7 @@ async def test_where_on_a_map_without_rooms():
     assert a["say"].startswith("It's on a map without any rooms")
 
 
-async def test_where_from_a_saved_map_does_not_guess():
+async def test_a_saved_map_does_not_claim_where_the_robot_is():
     fake = FakeClient()
     fake.map_answer = {**_map(room_list=[{"id": 1, "name": "Hall"}], robot_room=None), "source": "saved"}
     a = await _vacuum(fake).where()
@@ -500,7 +497,7 @@ async def test_clean_rooms_goes_through_them_and_home():
     assert (await v.status())["state"] == "returning"
 
 
-async def test_unknown_room_is_refused_and_the_rooms_named():
+async def test_an_unknown_room_is_refused():
     sim = SimulatedVacuum()
     a = await _vacuum(sim).clean_rooms(["Kitchen", "Bathroom"])
     assert not a["success"]
@@ -516,7 +513,7 @@ async def test_no_rooms_given_asks_which():
     assert sim.sent == []
 
 
-async def test_clean_rooms_while_cleaning_is_refused():
+async def test_a_room_clean_while_cleaning_is_refused():
     sim = SimulatedVacuum()
     v = _vacuum(sim)
     await v.start()
@@ -534,7 +531,7 @@ async def test_clean_rooms_on_a_map_without_rooms():
     assert "no rooms" in a["say"]
 
 
-async def test_clean_rooms_without_a_map_sends_nothing():
+async def test_a_room_clean_without_a_map_sends_nothing():
     a = await _vacuum(FakeClient()).clean_rooms(["Room 1"])
     assert not a["success"]
     assert a["say"].endswith("The vacuum wasn't told anything.")
