@@ -86,10 +86,10 @@ Re-establish the connection (maps and settings survive a Wi-Fi reset):
   also served at `GET /api/v1/map/png`.
 - "Render error" in the map output means the PNG renderer failed; raw map
   data is still available via `raw_b64`.
-- `"source": "saved"` means the live map could not be fetched and the
-  robot's saved map came back instead: rooms are right, the robot position
+- `"source": "saved"` means the live map could not be fetched or decrypted
+  (then `live_error` says why), and the robot's saved map came back instead: rooms are right, the robot position
   is not live.
-- "decode_map returned no MapData" usually means the map is encrypted and
+- "decode_map returned no MapData" (in `render_error` or `live_error`) usually means the map is encrypted and
   the model's IV is unknown: the model (from the cloud device record) is
   missing from the reference clone's `DEVICE_INFO`. Update the clone.
 
