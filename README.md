@@ -9,6 +9,13 @@
 </p>
 
 
+> **This fork** is the home of `dreame-voice-mcp`, a small voice server for
+> the vacuum (branch `voice`, see [the voice server](docs/VOICE.md)). The rest
+> is [Sandra Schipal's dreame-mcp](https://github.com/sandraschi/dreame-mcp),
+> MIT licensed, and general fixes go back to her as pull requests; this
+> fork's `main` follows hers.
+
+
 > 📖 **[Installation Guide](INSTALL.md)** — quick start, manual setup, and troubleshooting
 
 FastMCP 3.2.0 MCP server and webapp for the **Dreame D20 Pro Plus** robot vacuum. Uses the **DreameHome cloud API**; local **miio** is optional (hybrid mode: see below).

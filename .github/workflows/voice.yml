@@ -1,0 +1,79 @@
+# Checks for the voice server's home, Roy's fork. It runs only in
+# roykollensvendsen/dreame-mcp, on the `voice` branch and on pull requests to
+# it. Upstream's ci.yml stays as Sandra keeps it, for pull requests to her.
+name: Voice
+
+on:
+  push:
+    branches: ["voice"]
+  pull_request:
+    branches: ["voice"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voice-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    if: github.repository == 'roykollensvendsen/dreame-mcp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --frozen --dev
+      - name: Lint
+        run: uv run ruff check src tests
+      - name: Format
+        run: uv run ruff format --check src tests
+      - name: Types
+        run: uv run pyright src
+        env:
+          PYRIGHT_PYTHON_FORCE_VERSION: latest
+
+  test:
+    if: github.repository == 'roykollensvendsen/dreame-mcp'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # pyproject.toml claims >=3.12.
+        python: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --frozen --dev
+      # No robot, cloud login or Tasshack clone here: those tests skip.
+      - run: uv run pytest -q
+
+  commits:
+    if: github.repository == 'roykollensvendsen/dreame-mcp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Conventional commits
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # A new branch has no "before": check only its last commit.
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            range="$HEAD^!"
+          else
+            range="$BASE..$HEAD"
+          fi
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+'
+          bad=$(git log --no-merges --format='%h %s' "$range" | grep -Ev "^[0-9a-f]+ $pattern" || true)
+          if [ -n "$bad" ]; then
+            echo "Not conventional commits:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "All commit subjects in $range are conventional."
