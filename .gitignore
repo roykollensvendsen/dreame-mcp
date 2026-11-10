@@ -54,3 +54,5 @@ _dashboard/
 
 # A mutation run that was stopped midway (scripts/mutate.py)
 scripts/.mutate-recovery.json
+# Coverage data from scripts/ratchet.py measure
+.coverage

@@ -1,0 +1,6 @@
+{
+  "test_budget": {
+    "seconds": 90,
+    "tolerance": 0.25
+  }
+}

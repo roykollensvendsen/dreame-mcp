@@ -25,6 +25,14 @@ ways apply to it.
    uv run python scripts/mutate.py   # about three minutes
    ```
 
+   The `quality` job compares the pull request with the levels its base
+   kept (coverage, mutation tally, tests, lint and type errors, import cycles,
+   copied code, the most tangled function per module, the suite's time) and
+   fails when one gets worse. A deliberate step back needs a line of its own
+   in the pull request's text, `Ratchet-Exception: <measure> - why`. To see
+   the levels locally: `uv run python scripts/ratchet.py measure`
+   (about six minutes, the mutation run included).
+
    A new rule in the voice server gets a `# RULE: <its words>` line above the
    line that carries it, a row in `scripts/mutations.toml`, and a test named
    `test_<its words>`. The mutation run switches each rule off in turn and
