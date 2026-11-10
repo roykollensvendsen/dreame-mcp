@@ -1,7 +1,9 @@
-# Checks for the voice server's home, Roy's fork. It runs only in
+# Checks for the voice server's home, Roy's fork. The workflow is named
+# `checks`, like garage-door's and tv-mcp's, because the bridge's phone page
+# reads the levels the quality job keeps with each push to voice. It runs only in
 # roykollensvendsen/dreame-mcp, on the `voice` branch and on pull requests to
 # it. Upstream's ci.yml stays as Sandra keeps it, for pull requests to her.
-name: Voice
+name: checks
 
 on:
   push:
@@ -14,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: voice-${{ github.ref }}
+  group: checks-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,11 +28,11 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync --frozen --dev
       - name: Lint
-        run: uv run ruff check src tests scripts/mutate.py
+        run: uv run ruff check src tests scripts/mutate.py scripts/ratchet.py
       - name: Format
-        run: uv run ruff format --check src tests scripts/mutate.py
+        run: uv run ruff format --check src tests scripts/mutate.py scripts/ratchet.py
       - name: Types
-        run: uv run pyright src scripts/mutate.py
+        run: uv run pyright src scripts/mutate.py scripts/ratchet.py
         env:
           PYRIGHT_PYTHON_FORCE_VERSION: latest
 
@@ -61,6 +63,55 @@ jobs:
       - run: uv sync --frozen --dev
       - name: Each rule's own test fails when the rule is switched off
         run: uv run python scripts/mutate.py
+
+  # The quality levels (scripts/ratchet.py). A push to voice measures them and keeps
+  # them with its run as `quality-levels`, which the phone page reads. A pull request
+  # is compared with the levels its base kept, and fails when one gets worse without
+  # a Ratchet-Exception line; its mutation tally is the base's, since the required
+  # `mutations` job already demands a full score.
+  quality:
+    if: github.repository == 'roykollensvendsen/dreame-mcp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --frozen --dev
+      - name: The base this change lands on
+        if: github.event_name == 'pull_request'
+        run: echo "BASE=$(git rev-parse HEAD^1)" >> "$GITHUB_ENV"
+      - name: The levels the base kept
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for run in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow checks.yml --commit "$BASE" \
+                         --event push --json databaseId -q '.[].databaseId'); do
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --name quality-levels --dir "$RUNNER_TEMP/base" \
+              && break
+          done
+          ls "$RUNNER_TEMP/base" 2>/dev/null || echo "The base kept no levels; the ratchet will measure it."
+      - name: The quality ratchet
+        if: github.event_name == 'pull_request'
+        env:
+          RATCHET_EXCEPTIONS: ${{ github.event.pull_request.body }}
+          LEVELS: ${{ runner.temp }}/base/levels.json
+        run: uv run python scripts/ratchet.py check --base "$BASE" --levels "$LEVELS" --skip-mutation
+      - name: The levels voice reached
+        if: github.event_name == 'push'
+        run: uv run python scripts/ratchet.py measure --out "$RUNNER_TEMP/levels.json"
+      - name: Keep the levels with this run
+        if: github.event_name == 'push' && github.ref == 'refs/heads/voice'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quality-levels
+          path: ${{ runner.temp }}/levels.json
+          if-no-files-found: error
 
   commits:
     if: github.repository == 'roykollensvendsen/dreame-mcp'
