@@ -195,6 +195,46 @@ async def test_ask_first_starts_only_on_the_right_token():
     assert sim.sent == ["start_clean"]
 
 
+async def test_a_confirm_that_was_not_sent_can_be_tried_again():
+    sim = SimulatedVacuum()
+    v = _vacuum(sim, ask_first=True)
+    q = await v.start()
+    real, refused = sim.control, []
+
+    async def refuse_once(cmd: str) -> dict:
+        if not refused:
+            refused.append(cmd)
+            return {"success": False, "error": "simulated: not taken"}
+        return await real(cmd)
+
+    sim.control = refuse_once
+    first = await v.confirm(q["token"])
+    assert not first["success"] and first["say"].endswith("The vacuum wasn't told anything.")
+    second = await v.confirm(q["token"])
+    assert second["say"].startswith("Started.")
+    assert sim.sent == ["start_clean"]
+    assert not (await v.confirm(q["token"]))["success"]
+
+
+async def test_a_retried_confirm_does_not_start_twice():
+    # A start that timed out may still have reached the robot: the retry reads first.
+    sim = SimulatedVacuum()
+    v = _vacuum(sim, ask_first=True)
+    q = await v.start()
+    real = sim.control
+
+    async def lost_answer(cmd: str) -> dict:
+        await real(cmd)
+        return {"success": False, "error": "simulated: the answer was lost"}
+
+    sim.control = lost_answer
+    assert not (await v.confirm(q["token"]))["success"]
+    sim.control = real
+    again = await v.confirm(q["token"])
+    assert again["success"] and again["say"].startswith("It's already")
+    assert sim.sent == ["start_clean"]
+
+
 async def test_question_expires():
     clock = Clock()
     v = _vacuum(SimulatedVacuum(clock=clock), ask_first=True, clock=clock)

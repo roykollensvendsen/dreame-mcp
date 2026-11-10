@@ -295,7 +295,8 @@ class Vacuum:
         self._settle = settle
         self._budget = budget
         self._clock = clock
-        self._question: tuple[str, float] | None = None
+        # The open question: its token, when it expires, and whether a confirm was already tried.
+        self._question: tuple[str, float, bool] | None = None
 
     # -- answers -------------------------------------------------------
 
@@ -363,7 +364,7 @@ class Vacuum:
                 return self._answer(True, f"It's already {r.words()}.", r)
             if self.ask_first:
                 token = secrets.token_hex(3)
-                self._question = (token, self._clock() + QUESTION_TTL)
+                self._question = (token, self._clock() + QUESTION_TTL, False)
                 return self._answer(
                     True,
                     f"The vacuum is {r.words()}. Start a full clean now?",
@@ -379,7 +380,22 @@ class Vacuum:
         question, self._question = self._question, None
         if question is None or not secrets.compare_digest(question[0], token) or self._clock() > question[1]:
             return self._answer(False, "There is no open question with that token, so I didn't start it.")
-        return await self._guarded(self._start, sent=True)
+        _, expires, tried = question
+
+        async def act(deadline: float) -> dict[str, Any]:
+            if tried:
+                # The last try may have reached the robot without its answer reaching us.
+                r = await self._read(deadline)
+                if r.cleaning:
+                    return self._answer(True, f"It's already {r.words()}.", r)
+            return await self._start(deadline)
+
+        answer = await self._guarded(act, sent=True)
+        if not answer["success"] and self._question is None:
+            # The token is spent only once the start was sent: until it expires,
+            # the same yes can be tried again.
+            self._question = (token, expires, True)
+        return answer
 
     async def _start(self, deadline: float) -> dict[str, Any]:
         await self._send("start_clean", deadline)
