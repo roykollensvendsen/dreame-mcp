@@ -22,7 +22,13 @@ ways apply to it.
    uv run ruff format --check src tests
    uv run pyright src
    uv run pytest -q
+   uv run python scripts/mutate.py   # about three minutes
    ```
+
+   A new rule in the voice server gets a `# RULE: <its words>` line above the
+   line that carries it, a row in `scripts/mutations.toml`, and a test named
+   `test_<its words>`. The mutation run switches each rule off in turn and
+   fails unless that test fails.
 
 3. Commit with a [conventional commit](https://www.conventionalcommits.org)
    subject, e.g. `fix(voice): Say when the map cannot be read`. The checks

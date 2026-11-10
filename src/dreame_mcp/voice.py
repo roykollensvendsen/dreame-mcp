@@ -253,11 +253,13 @@ class Link:
             raise Unavailable("The vacuum isn't set up on the computer yet: its Dreame login is missing.")
         if self._task is None:
             waited = self._clock() - (self._last_try or float("-inf"))
+            # RULE: a failed login waits before trying again
             if waited < self._retry_after and self._last_try is not None:
                 raise Unavailable(_login_problem(client.cloud_error))
             self._begin()
         assert self._task is not None
         try:
+            # RULE: every tool answers within the voices time
             ok = await asyncio.wait_for(asyncio.shield(self._task), timeout=max(0.0, deadline - self._clock()))
         except TimeoutError:
             raise Unavailable("I'm still logging in to the Dreame cloud. Ask again in a moment.") from None
@@ -302,6 +304,7 @@ class Vacuum:
 
     def _answer(self, success: bool, say: str, reading: Reading | None = None, **extra: Any) -> dict[str, Any]:
         if self.simulated:
+            # RULE: a simulated answer says so
             say = "Simulated: " + say
         answer: dict[str, Any] = {"success": success, "say": say}
         if reading is not None:
@@ -312,6 +315,7 @@ class Vacuum:
 
     async def _within(self, deadline: float, call: Awaitable[T]) -> T:
         try:
+            # RULE: a slow cloud still answers within the budget
             return await asyncio.wait_for(call, timeout=max(0.0, deadline - self._clock()))
         except TimeoutError:
             raise Unavailable("The Dreame cloud is taking too long to answer.") from None
@@ -337,6 +341,7 @@ class Vacuum:
         wait = min(self._settle, max(0.0, deadline - self._clock() - 4.0))
         await asyncio.sleep(wait)
         try:
+            # RULE: an action says the state read back after it
             return await self._read(deadline)
         except Unavailable:
             return None
@@ -346,6 +351,7 @@ class Vacuum:
         try:
             return await act(deadline)
         except Unavailable as e:
+            # RULE: a command that was not sent says so
             return self._answer(False, e.say + (NOTHING_SENT if sent else ""))
 
     # -- tools ---------------------------------------------------------
@@ -378,11 +384,14 @@ class Vacuum:
 
     async def confirm(self, token: str) -> dict[str, Any]:
         question, self._question = self._question, None
+        # RULE: a confirm needs the open questions token
+        # RULE: a question expires
         if question is None or not secrets.compare_digest(question[0], token) or self._clock() > question[1]:
             return self._answer(False, "There is no open question with that token, so I didn't start it.")
         _, expires, tried = question
 
         async def act(deadline: float) -> dict[str, Any]:
+            # RULE: a retried confirm does not start twice
             if tried:
                 # The last try may have reached the robot without its answer reaching us.
                 r = await self._read(deadline)
@@ -394,6 +403,7 @@ class Vacuum:
         if not answer["success"] and self._question is None:
             # The token is spent only once the start was sent: until it expires,
             # the same yes can be tried again.
+            # RULE: a token is spent only once the start was sent
             self._question = (token, expires, True)
         return answer
 
@@ -455,6 +465,7 @@ class Vacuum:
             rooms = md.get("room_list") or []
             room = md.get("robot_room")
             name = room["name"] if room else None
+            # RULE: a saved map does not claim where the robot is
             if m.get("source") != "live":
                 say = f"I only have its saved map, not where it is now. The vacuum is {r.words()}."
             elif not rooms:
@@ -497,6 +508,7 @@ class Vacuum:
             asked = [r for r in (rooms or []) if r and r.strip()]
             r = await self._read(deadline)
             if r.cleaning:
+                # RULE: a room clean while cleaning is refused
                 return self._answer(False, f"It's already {r.words()}. Stop it first, then ask again.", r, rooms=[])
             m = await self._map(deadline)
             room_list = m["map_data"].get("room_list") or []
@@ -507,6 +519,7 @@ class Vacuum:
             if not asked:
                 return self._answer(False, f"Which rooms? The map has {existing}.", r, rooms=[])
             unknown = [name.strip() for name in asked if _room_key(name) not in known]
+            # RULE: an unknown room is refused
             if unknown:
                 these = "There is no room called " + _listed([f"'{u}'" for u in unknown])
                 return self._answer(False, f"{these}. The map has {existing}.", r, rooms=[])
@@ -586,6 +599,7 @@ def build_server(vacuum: Vacuum) -> FastMCP:
         instructions=instructions(vacuum.ask_first, vacuum.simulated),
         lifespan=lifespan,
     )
+    # RULE: a tool that changes nothing is marked read only
     read_only = {"readOnlyHint": True, "openWorldHint": True}
     acts = {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True}
 

@@ -1,0 +1,94 @@
+# Every rule the voice server enforces, and the one line that carries it.
+#
+# scripts/mutate.py switches each rule off in turn, by replacing its line, and
+# runs the tests. The test named after the rule (test_ + its words) must then
+# fail. The line in the source is marked `# RULE: <name>` just above it, and
+# tests/test_rules_have_evidence.py keeps the markers and the rows in step.
+#
+# `find` is a regular expression for the line; `occurrence` picks one when the
+# pattern matches more than one line (default 1). `replace` is the whole new
+# line, without indentation: the line's own indentation is kept.
+
+[[rule]]
+name = "a confirm needs the open questions token"
+file = "src/dreame_mcp/voice.py"
+find = 'if question is None or not secrets\.compare_digest'
+replace = 'if question is None or self._clock() > question[1]:'
+
+[[rule]]
+name = "a question expires"
+file = "src/dreame_mcp/voice.py"
+find = 'if question is None or not secrets\.compare_digest'
+replace = 'if question is None or not secrets.compare_digest(question[0], token):'
+
+[[rule]]
+name = "a token is spent only once the start was sent"
+file = "src/dreame_mcp/voice.py"
+find = 'self\._question = \(token, expires, True\)'
+replace = 'pass'
+
+[[rule]]
+name = "a retried confirm does not start twice"
+file = "src/dreame_mcp/voice.py"
+find = 'if tried:'
+replace = 'if False:'
+
+[[rule]]
+name = "a failed login waits before trying again"
+file = "src/dreame_mcp/voice.py"
+find = 'if waited < self\._retry_after and self\._last_try is not None:'
+replace = 'if False:'
+
+[[rule]]
+name = "a slow cloud still answers within the budget"
+file = "src/dreame_mcp/voice.py"
+find = 'return await asyncio\.wait_for\(call, timeout='
+replace = 'return await asyncio.wait_for(call, timeout=max(0.0, deadline - self._clock()) + 1)'
+
+[[rule]]
+name = "every tool answers within the voices time"
+file = "src/dreame_mcp/voice.py"
+find = 'ok = await asyncio\.wait_for\(asyncio\.shield\(self\._task\)'
+replace = 'ok = await asyncio.wait_for(asyncio.shield(self._task), timeout=max(0.0, deadline - self._clock()) + 1)'
+
+[[rule]]
+name = "a simulated answer says so"
+file = "src/dreame_mcp/voice.py"
+find = 'say = "Simulated: " \+ say'
+replace = 'pass'
+
+[[rule]]
+name = "a command that was not sent says so"
+file = "src/dreame_mcp/voice.py"
+find = 'e\.say \+ \(NOTHING_SENT if sent else ""\)'
+replace = 'return self._answer(False, e.say)'
+
+[[rule]]
+name = "an unknown room is refused"
+file = "src/dreame_mcp/voice.py"
+find = 'if unknown:'
+replace = 'if False:'
+
+[[rule]]
+name = "a room clean while cleaning is refused"
+file = "src/dreame_mcp/voice.py"
+find = 'Stop it first, then ask again'
+replace = 'pass'
+
+[[rule]]
+name = "a saved map does not claim where the robot is"
+file = "src/dreame_mcp/voice.py"
+find = 'if m\.get\("source"\) != "live":'
+replace = 'if False:'
+
+[[rule]]
+name = "an action says the state read back after it"
+file = "src/dreame_mcp/voice.py"
+find = 'return await self\._read\(deadline\)$'
+replace = 'return None'
+
+[[rule]]
+name = "a tool that changes nothing is marked read only"
+file = "src/dreame_mcp/voice.py"
+find = 'read_only = \{"readOnlyHint": True'
+replace = 'read_only = {"readOnlyHint": False, "openWorldHint": True}'

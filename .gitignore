@@ -51,3 +51,6 @@ D:/Dev/repos/temp/dreame_*
 # Tasshack ref clone — NOT committed, must exist locally
 # tasshack_dreame_vacuum_ref/ is a sibling repo, not part of this one
 _dashboard/
+
+# A mutation run that was stopped midway (scripts/mutate.py)
+scripts/.mutate-recovery.json
