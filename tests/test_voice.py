@@ -88,6 +88,25 @@ async def test_ask_first_adds_confirm():
         assert {t.name for t in await c.list_tools()} == TOOLS | {"vacuum_confirm"}
 
 
+# The Claude app shows an unloaded tool as one line, the connector's name and
+# then the description cut at about 80 characters: some 26 of them are ours.
+VISIBLE = 26
+
+
+async def test_each_tool_opens_with_a_short_whole_sentence_of_its_own():
+    for ask_first in (False, True):
+        async with Client(build_server(_vacuum(SimulatedVacuum(), ask_first=ask_first))) as c:
+            tools = await c.list_tools()
+        firsts = {t.name: (t.description or "").splitlines()[0] for t in tools}
+        for name, first in firsts.items():
+            assert len(first) <= VISIBLE, (name, first)
+            assert first.endswith((".", "?")), (name, first)
+        opening = [first.split()[0].strip(",.").casefold() for first in firsts.values()]
+        assert len(set(opening)) == len(opening), firsts
+        for t in tools:
+            assert len((t.description or "").splitlines()) > 1, (t.name, "details belong on the next lines")
+
+
 async def test_status_on_the_dock():
     a = await _call(_vacuum(SimulatedVacuum()), "vacuum_status")
     assert a == {

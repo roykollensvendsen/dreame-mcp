@@ -575,13 +575,18 @@ def build_server(vacuum: Vacuum) -> FastMCP:
 
     @mcp.tool(annotations=read_only)
     async def vacuum_status() -> dict[str, Any]:
-        """What the vacuum is doing and how full its battery is."""
+        """State and battery now.
+
+        What the vacuum is doing and how full its battery is.
+        """
         return await vacuum.status()
 
     start_doc = (
-        "Ask whether to start a full clean; start only with vacuum_confirm after the user's yes."
+        "Ask, then clean it all.\n\n"
+        "Asks whether to start a full clean of the home;"
+        " start only with vacuum_confirm after the user's yes."
         if vacuum.ask_first
-        else "Start a full clean of the home."
+        else "Full clean of the home.\n\nStarts cleaning every room."
     )
 
     @mcp.tool(annotations=acts, description=start_doc)
@@ -592,42 +597,66 @@ def build_server(vacuum: Vacuum) -> FastMCP:
 
         @mcp.tool(annotations=acts)
         async def vacuum_confirm(token: str) -> dict[str, Any]:
-            """Start the clean the user just said yes to, with the token from vacuum_start's question."""
+            """Yes to the asked clean.
+
+            Start the clean the user just said yes to, with the token from vacuum_start's question.
+            """
             return await vacuum.confirm(token)
 
     @mcp.tool(annotations=acts)
     async def vacuum_pause() -> dict[str, Any]:
-        """Pause the clean; vacuum_start carries on from there."""
+        """Pause the clean.
+
+        vacuum_start carries on from there.
+        """
         return await vacuum.pause()
 
     @mcp.tool(annotations=acts)
     async def vacuum_stop() -> dict[str, Any]:
-        """Stop the clean where the vacuum is."""
+        """Stop where it is.
+
+        Ends the clean and leaves the vacuum where it stands.
+        """
         return await vacuum.stop()
 
     @mcp.tool(annotations=acts)
     async def vacuum_go_home() -> dict[str, Any]:
-        """Send the vacuum back to its dock."""
+        """Back to the dock.
+
+        Send the vacuum home to its dock.
+        """
         return await vacuum.go_home()
 
     @mcp.tool(annotations=acts)
     async def vacuum_find() -> dict[str, Any]:
-        """Make the vacuum beep, to find it."""
+        """Beep, to find it.
+
+        The vacuum plays a sound so the user can find it.
+        """
         return await vacuum.find()
 
     @mcp.tool(annotations=read_only)
     async def vacuum_where() -> dict[str, Any]:
-        """Which room the vacuum is in, from its live map, and whether it is on its dock."""
+        """Which room it is in.
+
+        From its live map, and whether it is on its dock.
+        """
         return await vacuum.where()
 
     @mcp.tool(annotations=read_only)
     async def vacuum_rooms() -> dict[str, Any]:
-        """The names of the rooms on the vacuum's map."""
+        """List the map's rooms.
+
+        The names of the rooms on the vacuum's map.
+        """
         return await vacuum.rooms()
 
     @mcp.tool(annotations=acts)
     async def vacuum_clean_rooms(rooms: list[str]) -> dict[str, Any]:
-        """Clean only these rooms, in this order. Use the room names vacuum_rooms gives, such as "Room 3"."""
+        """Clean only named rooms.
+
+        Cleans them in the order given. Use the room names vacuum_rooms gives, such as "Room 3".
+        """
         return await vacuum.clean_rooms(rooms)
 
     return mcp
