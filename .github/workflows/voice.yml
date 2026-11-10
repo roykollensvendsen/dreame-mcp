@@ -26,11 +26,11 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv sync --frozen --dev
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts/mutate.py
       - name: Format
-        run: uv run ruff format --check src tests
+        run: uv run ruff format --check src tests scripts/mutate.py
       - name: Types
-        run: uv run pyright src
+        run: uv run pyright src scripts/mutate.py
         env:
           PYRIGHT_PYTHON_FORCE_VERSION: latest
 
@@ -50,6 +50,17 @@ jobs:
       - run: uv sync --frozen --dev
       # No robot, cloud login or Tasshack clone here: those tests skip.
       - run: uv run pytest -q
+
+  mutations:
+    if: github.repository == 'roykollensvendsen/dreame-mcp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --frozen --dev
+      - name: Each rule's own test fails when the rule is switched off
+        run: uv run python scripts/mutate.py
 
   commits:
     if: github.repository == 'roykollensvendsen/dreame-mcp'
