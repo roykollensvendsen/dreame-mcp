@@ -69,7 +69,7 @@ jobs:
           else
             range="$BASE..$HEAD"
           fi
-          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+'
+          pattern='(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?: .+'
           bad=$(git log --no-merges --format='%h %s' "$range" | grep -Ev "^[0-9a-f]+ $pattern" || true)
           if [ -n "$bad" ]; then
             echo "Not conventional commits:"
