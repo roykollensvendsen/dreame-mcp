@@ -3,7 +3,7 @@
 ## Status
 
 Accepted. Roy's choice, made when the bridge was set up (it runs the server
-without `--ask-first`). Written down by Claude on 2026-11-10, as the plugin
+without `--ask-before-start`). Written down by Claude on 2026-11-10, as the plugin
 standard's rule 7 asks.
 
 ## Context
@@ -23,11 +23,11 @@ No vacuum action is risky enough to ask first by default:
 | `vacuum_status`, `vacuum_where`, `vacuum_rooms` | nothing (read-only) | no |
 | `vacuum_find` | the vacuum beeps | no |
 | `vacuum_pause`, `vacuum_stop`, `vacuum_go_home` | ends or interrupts a clean | no: stopping is the safe direction |
-| `vacuum_start` | starts a full clean | no, unless the server runs with `--ask-first` |
+| `vacuum_clean_all` | starts a full clean | no, unless the server runs with `--ask-before-start` |
 | `vacuum_clean_rooms` | starts cleaning the named rooms | no, in either mode |
 
-`--ask-first` exists for an owner who wants a start to be confirmed. Then
-`vacuum_start` asks, and `vacuum_confirm` starts the clean with the token. The
+`--ask-before-start` exists for an owner who wants a start to be confirmed. Then
+`vacuum_clean_all` asks, and `vacuum_confirm` starts the clean with the token. The
 token expires after 120 seconds, and a wrong token closes the question. The
 token is spent only once the start has been sent, so a confirm that never got
 through can be tried again with the same token. A retry reads the state first,
@@ -38,7 +38,13 @@ so a start that did arrive is not sent twice.
 - By voice, "start the vacuum" starts it. The instructions still tell the
   voice to call a command only when the user asks for it now, and never to
   start a clean on its own.
-- With `--ask-first`, `vacuum_clean_rooms` still starts without a question.
+- With `--ask-before-start`, `vacuum_clean_rooms` still starts without a question.
   That is not deliberate: nobody runs the server in that mode today. If an
-  owner turns `--ask-first` on, `vacuum_clean_rooms` should ask too. Deferred
+  owner turns `--ask-before-start` on, `vacuum_clean_rooms` should ask too. Deferred
   until then.
+
+## Later
+
+On 2026-11-10 Roy chose to rename `vacuum_start` to `vacuum_clean_all`: by
+voice, "start" and "stop" sounded alike (plugin standard, rule 1). What the
+tool does, and that it doesn't ask first, are unchanged.

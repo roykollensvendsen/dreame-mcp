@@ -17,7 +17,7 @@ from dreame_mcp.client import DreameStatus
 from dreame_mcp.simulator import SimulatedVacuum
 from dreame_mcp.voice import Link, Reading, Vacuum, build_server, instructions
 
-SIX = {"vacuum_status", "vacuum_start", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
+SIX = {"vacuum_status", "vacuum_clean_all", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
 TOOLS = SIX | {"vacuum_where", "vacuum_rooms", "vacuum_clean_rooms"}
 
 
@@ -107,9 +107,9 @@ async def test_a_clean_from_start_to_dock():
         async def say(tool):
             return (await c.call_tool(tool, {})).structured_content
 
-        a = await say("vacuum_start")
+        a = await say("vacuum_clean_all")
         assert a["say"] == "Started. The vacuum is cleaning, battery 100 percent."
-        assert (await say("vacuum_start"))["say"].startswith("It's already cleaning")
+        assert (await say("vacuum_clean_all"))["say"].startswith("It's already cleaning")
         assert (await say("vacuum_pause"))["say"].startswith("Paused. The vacuum is paused")
         assert (await say("vacuum_go_home"))["say"].startswith("Sent home. The vacuum is on its way back")
         assert (await say("vacuum_find"))["say"] == "The vacuum is beeping now, so you can find it."
@@ -175,7 +175,7 @@ async def test_a_confirm_needs_the_open_questions_token():
     sim = SimulatedVacuum()
     v = _vacuum(sim, ask_first=True)
     async with Client(build_server(v)) as c:
-        q = (await c.call_tool("vacuum_start", {})).structured_content
+        q = (await c.call_tool("vacuum_clean_all", {})).structured_content
         assert q["question"] is True
         assert q["say"].endswith("Start a full clean now?")
         assert sim.sent == []
@@ -184,7 +184,7 @@ async def test_a_confirm_needs_the_open_questions_token():
         # A wrong token closes the question; the right one no longer works either.
         late = (await c.call_tool("vacuum_confirm", {"token": q["token"]})).structured_content
         assert not late["success"]
-        q = (await c.call_tool("vacuum_start", {})).structured_content
+        q = (await c.call_tool("vacuum_clean_all", {})).structured_content
         ok = (await c.call_tool("vacuum_confirm", {"token": q["token"]})).structured_content
         assert ok["say"].startswith("Started.")
         again = (await c.call_tool("vacuum_confirm", {"token": q["token"]})).structured_content
@@ -249,7 +249,7 @@ async def test_offline_status_says_cannot_reach():
 
 
 async def test_a_command_that_was_not_sent_says_so():
-    a = await _call(_vacuum(SimulatedVacuum(offline=True)), "vacuum_start")
+    a = await _call(_vacuum(SimulatedVacuum(offline=True)), "vacuum_clean_all")
     assert not a["success"]
     assert a["say"].endswith("The vacuum wasn't told anything.")
 

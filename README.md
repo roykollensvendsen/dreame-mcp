@@ -139,7 +139,7 @@ If you don't have `just` installed:
 ### Voice assistants
 
 `dreame-voice-mcp` is a small stdio server with nine tools (`vacuum_status`,
-`vacuum_start`, `vacuum_pause`, `vacuum_stop`, `vacuum_go_home`,
+`vacuum_clean_all`, `vacuum_pause`, `vacuum_stop`, `vacuum_go_home`,
 `vacuum_find`, `vacuum_where`, `vacuum_rooms`, `vacuum_clean_rooms`) that answer in one sentence to
 read aloud. `--simulate` runs it
 against a pretend vacuum. See [the voice server](docs/VOICE.md).

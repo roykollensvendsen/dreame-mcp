@@ -15,7 +15,7 @@ from dreame_mcp.voice import Link, Vacuum, build_server
 
 READ_ONLY = {"vacuum_status", "vacuum_where", "vacuum_rooms"}
 ACTS = {
-    "vacuum_start",
+    "vacuum_clean_all",
     "vacuum_confirm",
     "vacuum_pause",
     "vacuum_stop",
