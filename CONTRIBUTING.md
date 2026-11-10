@@ -35,6 +35,14 @@ The voice server keeps the shared
 Decisions are recorded in [decisions/](decisions/), and what is put off is in
 [docs/DEFERRED.md](docs/DEFERRED.md).
 
+## The voice check
+
+The tests can check a description's length, but not what the voice makes of
+it. After a change to a tool's name or the first line of its description,
+restart the bridge (`systemctl --user restart claude-voice`), start a new
+chat in the Claude app, and ask the voice which vacuum tools it sees and how
+each one's description begins. Write what it said in the pull request.
+
 ## The real robot
 
 Tests use the simulator and fakes, and never reach the cloud. Don't send a

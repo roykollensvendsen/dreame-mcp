@@ -14,7 +14,7 @@ Please don't open a public issue. For the rest of dreame-mcp, report to
   `password`, readable by the owner alone), given with `--secrets-dir`. It is
   never passed through the voice bridge or the conversation, never written to
   `.env`, and never logged. A spoken answer about a failed login doesn't name
-  the account. `test_password_never_in_an_answer_or_a_log` checks this.
+  the account. `test_the_password_is_never_in_an_answer_or_a_log` checks this.
 - The server speaks MCP over stdio only and opens no port.
 - It acts only when called. Nothing is retried on its own initiative, apart
   from logging in again after a pause.
