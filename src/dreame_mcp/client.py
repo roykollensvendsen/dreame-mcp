@@ -1423,13 +1423,8 @@ def read_credentials_dir(path: str | Path) -> tuple[str | None, str | None]:
     return values[0], values[1]
 
 
-def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClient | None:
-    """Build a DreameHomeClient from environment variables supporting Hybrid Mode.
-
-    With ``credentials_dir``, the account and password come from the files in
-    that folder (see read_credentials_dir) and take precedence over the
-    environment; everything else still comes from the environment and .env.
-    """
+def _load_env() -> None:
+    """Read .env from the working folder, or from the repository when that gives no login."""
     load_dotenv()
     if not os.environ.get("DREAME_USER") and not os.environ.get("DREAME_IP"):
         # Fleet starters may launch uvicorn with a CWD outside the repo root,
@@ -1437,12 +1432,28 @@ def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClie
         _repo_env = Path(__file__).resolve().parent.parent.parent / ".env"
         if _repo_env.is_file():
             load_dotenv(_repo_env)
+
+
+def _login_from(credentials_dir: str | Path | None) -> tuple[str, str]:
+    """The account and password: the folder's files when given and present, else the environment."""
     user = os.environ.get("DREAME_USER", "").strip()
     pwd = os.environ.get("DREAME_PASSWORD", "").strip()
     if credentials_dir is not None:
         file_user, file_pwd = read_credentials_dir(credentials_dir)
         user = file_user or user
         pwd = file_pwd or pwd
+    return user, pwd
+
+
+def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClient | None:
+    """Build a DreameHomeClient from environment variables supporting Hybrid Mode.
+
+    With ``credentials_dir``, the account and password come from the files in
+    that folder (see read_credentials_dir) and take precedence over the
+    environment; everything else still comes from the environment and .env.
+    """
+    _load_env()
+    user, pwd = _login_from(credentials_dir)
     ip = os.environ.get("DREAME_IP", "").strip()
     token = os.environ.get("DREAME_TOKEN", "").strip()
 
