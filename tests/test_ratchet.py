@@ -1,9 +1,9 @@
 """The quality levels and the ratchet (the plugin standard, rule 16).
 
 scripts/ratchet.py measures the levels the phone page shows (coverage, the
-mutation tally, tests, lint and type errors, import cycles, copied code, the
-most tangled function per module, the suite's time) and refuses a change that
-makes one worse than the base, unless the pull request names it in a
+mutation tally, tests, lint and type errors, import cycles, imports that break
+the layers, copied code, the most tangled function per module, the suite's time)
+and refuses a change that makes one worse than the base, unless the pull request names it in a
 `Ratchet-Exception:` line.
 """
 
@@ -26,6 +26,7 @@ BASE = {
     "lint_errors": 0,
     "type_errors": 0,
     "cycles": 0,
+    "layer_violations": 0,
     "duplication": 1.0,
     "complexity": {"pkg/a.py": 5},
     "test_seconds": 10.0,
@@ -111,6 +112,33 @@ def test_import_cycles_are_counted(tmp_path):
     assert ratchet.cycles(pkg) == 0
 
 
+def test_an_import_that_reaches_up_or_sideways_breaks_the_layers(tmp_path):
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "low.py").write_text("import json\n")
+    (pkg / "mid.py").write_text("from . import low\n")
+    (pkg / "top.py").write_text("from pkg import mid, low\n")
+    layers = {"__init__": 0, "low": 0, "mid": 1, "top": 2}
+    assert ratchet.layer_breaches(pkg, layers) == []
+    (pkg / "low.py").write_text("from . import mid\n")  # up
+    (pkg / "other.py").write_text("")  # no layer
+    (pkg / "mid2.py").write_text("from . import mid\n")  # sideways
+    assert ratchet.layer_breaches(pkg, {**layers, "mid2": 1}) == [
+        "low (layer 0) imports mid (layer 1)",
+        "mid2 (layer 1) imports mid (layer 1)",
+        "other has no layer",
+    ]
+
+
+def test_every_module_of_the_server_keeps_to_its_layer():
+    assert ratchet.layer_breaches(ratchet.PACKAGE, ratchet.LAYERS) == []
+
+
+def test_more_layer_breaches_are_refused():
+    assert ratchet.compare(BASE, _with(layer_violations=1), BUDGET, set()) == ["layer_violations got worse: 0 -> 1"]
+
+
 def test_complexity_is_the_most_tangled_function_per_module(tmp_path):
     pkg = tmp_path / "pkg"
     pkg.mkdir()
@@ -132,6 +160,7 @@ def test_the_levels_are_written_as_the_phone_page_reads_them(tmp_path):
         "lint_errors",
         "type_errors",
         "cycles",
+        "layer_violations",
         "duplication",
         "complexity",
         "test_seconds",

@@ -27,8 +27,10 @@ ways apply to it.
 
    The `quality` job compares the pull request with the levels its base
    kept (coverage, mutation tally, tests, lint and type errors, import cycles,
-   copied code, the most tangled function per module, the suite's time) and
-   fails when one gets worse. A deliberate step back needs a line of its own
+   imports that break the layers, copied code, the most tangled function per
+   module, the suite's time) and fails when one gets worse. A new module needs
+   a layer in `LAYERS` in `scripts/ratchet.py`; as it loads, a module may
+   import only modules in lower layers. A deliberate step back needs a line of its own
    in the pull request's text, `Ratchet-Exception: <measure> - why`. To see
    the levels locally: `uv run python scripts/ratchet.py measure`
    (about six minutes, the mutation run included).
