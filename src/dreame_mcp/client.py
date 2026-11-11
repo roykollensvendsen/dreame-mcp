@@ -550,79 +550,11 @@ class DreameHomeClient:
         # control path: legacy Xiaomi auth (account.xiaomi.com) rejects
         # DreameHome accounts with 70016, and the null-token UDP trick no
         # longer works on current firmware.
-        self._dreame_cloud = None
-        if _cloud_cls is not None and self._username and self._password:
-            try:
-                self._dreame_cloud = _cloud_cls(
-                    self._username,
-                    self._password,
-                    account_type="dreame",
-                    country=self._country,
-                    auth_key=self._auth_key,
-                    did=str(self._did) if self._did else None,
-                )
-            except TypeError:
-                # Upstream v1 refs use (username, password, country, auth_key, device_id)
-                self._dreame_cloud = _cloud_cls(
-                    self._username,
-                    self._password,
-                    country=self._country,
-                    auth_key=self._auth_key,
-                    device_id=str(self._did) if self._did else None,
-                )
+        self._dreame_cloud = self._make_dreame_cloud()
 
         cloud = self._dreame_cloud or (getattr(self._protocol, "cloud", None) if self._username else None)
         if cloud is not None:
-            ok = cloud.login()
-            if ok:
-                logger.info("Cloud login OK (%s)", type(cloud).__name__)
-                self._cloud_error = None
-                # Resolve DID + command routing host from the device list. The
-                # bindDomain (e.g. "10000.mt.eu.iot.dreame.tech:19973") routes
-                # sendCommand to the device's region gateway — without it the
-                # API answers 404.
-                try:
-                    devices = cloud.get_devices()
-                except Exception:
-                    devices = None
-                records: list = []
-                if isinstance(devices, dict):
-                    records = devices.get("page", {}).get("records", []) or []
-                elif isinstance(devices, list):
-                    records = devices
-                if records:
-                    target = None
-                    if self._ip:
-                        target = next((d for d in records if d.get("localip") == self._ip), None)
-                    if not target:
-                        target = next((d for d in records if str(d.get("did", "")) == str(self._did)), None)
-                    if not target:
-                        target = records[0]
-                    if target:
-                        self._did = str(target.get("did", "")) or self._did
-                        self._model = target.get("model") or self._model
-                        # The cloud client was constructed before the DID was
-                        # known, and it builds every command payload from its own
-                        # copy of it. Left unset, sendCommand posts did="None" and
-                        # the gateway answers 400 Bad Request.
-                        if self._did and getattr(cloud, "_did", None) != self._did:
-                            cloud._did = self._did
-                        bind = target.get("bindDomain")
-                        if bind and hasattr(cloud, "_host"):
-                            cloud._host = bind
-                            logger.info("Cloud command host: %s (did=%s)", bind, self._did)
-                        elif self._did:
-                            logger.info("DID=%s (no bindDomain in device record)", self._did)
-                    # Populate _model/_uid on the cloud client so the map file API
-                    # (get_interim_file_url) can sign URLs. Depends on _did being
-                    # set above — it posts {"did": self._did} as well.
-                    try:
-                        cloud.get_device_info()
-                    except Exception as e:
-                        logger.debug("cloud get_device_info failed: %s", e)
-            else:
-                self._cloud_error = _classify_cloud_failure(cloud)
-                logger.warning("Cloud login failed: %s", self._cloud_error)
+            self._cloud_login(cloud)
 
         self._apply_local_miot_tuning()
 
@@ -632,6 +564,96 @@ class DreameHomeClient:
             logger.error("No local connection and cloud login failed")
             return False
 
+        self._start_map_tools()
+
+        logger.info(
+            "Connected [ip=%s null_token=%s did=%s cloud=%s]",
+            self._ip,
+            self._token == "0" * 32,
+            self._did,
+            cloud_ok,
+        )
+        return True
+
+    def _make_dreame_cloud(self) -> Any:
+        """The Dreame-native cloud client, when there is a login; None otherwise."""
+        if _cloud_cls is None or not self._username or not self._password:
+            return None
+        try:
+            return _cloud_cls(
+                self._username,
+                self._password,
+                account_type="dreame",
+                country=self._country,
+                auth_key=self._auth_key,
+                did=str(self._did) if self._did else None,
+            )
+        except TypeError:
+            # Upstream v1 refs use (username, password, country, auth_key, device_id)
+            return _cloud_cls(
+                self._username,
+                self._password,
+                country=self._country,
+                auth_key=self._auth_key,
+                device_id=str(self._did) if self._did else None,
+            )
+
+    def _cloud_login(self, cloud: Any) -> None:
+        """Log in to the cloud and learn the robot from its device list, or keep why the login failed."""
+        if not cloud.login():
+            self._cloud_error = _classify_cloud_failure(cloud)
+            logger.warning("Cloud login failed: %s", self._cloud_error)
+            return
+        logger.info("Cloud login OK (%s)", type(cloud).__name__)
+        self._cloud_error = None
+        # Resolve DID + command routing host from the device list. The
+        # bindDomain (e.g. "10000.mt.eu.iot.dreame.tech:19973") routes
+        # sendCommand to the device's region gateway — without it the
+        # API answers 404.
+        records = _device_records(cloud)
+        if not records:
+            return
+        target = self._choose_device(records)
+        if target:
+            self._adopt_device(cloud, target)
+        # Populate _model/_uid on the cloud client so the map file API
+        # (get_interim_file_url) can sign URLs. Depends on _did being
+        # set above — it posts {"did": self._did} as well.
+        try:
+            cloud.get_device_info()
+        except Exception as e:
+            logger.debug("cloud get_device_info failed: %s", e)
+
+    def _choose_device(self, records: list) -> Any:
+        """The robot's record: by its IP, else by its device id, else the first one."""
+        target = None
+        if self._ip:
+            target = next((d for d in records if d.get("localip") == self._ip), None)
+        if not target:
+            target = next((d for d in records if str(d.get("did", "")) == str(self._did)), None)
+        if not target:
+            target = records[0]
+        return target
+
+    def _adopt_device(self, cloud: Any, target: dict) -> None:
+        """Take the robot's id, model and command host from its record."""
+        self._did = str(target.get("did", "")) or self._did
+        self._model = target.get("model") or self._model
+        # The cloud client was constructed before the DID was
+        # known, and it builds every command payload from its own
+        # copy of it. Left unset, sendCommand posts did="None" and
+        # the gateway answers 400 Bad Request.
+        if self._did and getattr(cloud, "_did", None) != self._did:
+            cloud._did = self._did
+        bind = target.get("bindDomain")
+        if bind and hasattr(cloud, "_host"):
+            cloud._host = bind
+            logger.info("Cloud command host: %s (did=%s)", bind, self._did)
+        elif self._did:
+            logger.info("DID=%s (no bindDomain in device record)", self._did)
+
+    def _start_map_tools(self) -> None:
+        """The map manager and renderer, when the map library loaded."""
         if _map_manager_cls is not None:
             try:
                 self._map_manager = _map_manager_cls(self._protocol)
@@ -647,15 +669,6 @@ class DreameHomeClient:
                     self._map_renderer = _map_renderer_cls()
             except Exception as e:
                 logger.warning("DreameVacuumMapRenderer init failed: %s", e)
-
-        logger.info(
-            "Connected [ip=%s null_token=%s did=%s cloud=%s]",
-            self._ip,
-            self._token == "0" * 32,
-            self._did,
-            cloud_ok,
-        )
-        return True
 
     def disconnect(self) -> None:
         """Tear down protocol; executor is kept for process lifetime (server exit)."""
@@ -880,28 +893,9 @@ class DreameHomeClient:
 
         for endpoint in candidates:
             try:
-                from custom_components.dreame_vacuum.dreame.const import (  # type: ignore[import-not-found]
-                    MAP_PARAMETER_VALUE,
-                )
-                from custom_components.dreame_vacuum.dreame.types import (  # type: ignore[import-not-found]
-                    DIID,
-                    DreameVacuumProperty,
-                )
-
-                r = endpoint.get_properties(DIID(DreameVacuumProperty.OBJECT_NAME))
-                if r and len(r) > 0:
-                    first = r[0]
-                    val = first.get(MAP_PARAMETER_VALUE) or first.get("value")
-                    if val is not None:
-                        if isinstance(val, (list, tuple)) and val:
-                            return str(val[0])
-                        if isinstance(val, str):
-                            s = val.strip()
-                            if s.startswith("["):
-                                j = json.loads(s)
-                                if isinstance(j, (list, tuple)) and j:
-                                    return str(j[0])
-                            return s
+                name = _object_name_property(endpoint)
+                if name is not None:
+                    return name
             except Exception as e:
                 logger.debug("get_properties(OBJECT_NAME) via %s: %s", type(endpoint).__name__, e)
 
@@ -929,41 +923,14 @@ class DreameHomeClient:
     def _fetch_map_bytes_from_cloud_url(self, object_name: str) -> bytes | None:
         """Tasshack order: interim URL then get_file. Try cloud, then protocol."""
         for proto in self._dreame_file_endpoints():
-            u: Any = None
-            try:
-                if hasattr(proto, "get_interim_file_url"):
-                    u = proto.get_interim_file_url(object_name)  # type: ignore[union-attr]
-            except Exception as e:
-                logger.debug("get_interim_file_url: %s", e)
-            if u is not None and not (isinstance(u, str) and (u or "").strip().lower().startswith("http")):
-                if isinstance(u, dict):
-                    u2 = (u or {}).get("url") or (u or {}).get("fileUrl")
-                    u = u2 if isinstance(u2, str) else None
-                else:
-                    u = None
+            u = _interim_url(proto, object_name)
             if not u and hasattr(proto, "get_file_url"):
-                o = object_name if str(object_name).startswith("/") else f"/{object_name}"
-                try:
-                    d = proto.get_file_url(o)
-                except Exception as e:
-                    logger.debug("get_file_url: %s", e)
-                    d = None
-                if isinstance(d, dict):
-                    u = d.get("url") or d.get("fileUrl")
-                elif isinstance(d, str) and d.strip().lower().startswith("http"):
-                    u = d
+                u = _file_url(proto, object_name)
             if not u or not str(u).strip().lower().startswith("http"):
                 continue
-            try:
-                if not hasattr(proto, "get_file"):
-                    continue
-                raw = proto.get_file(str(u).strip())  # type: ignore[union-attr]
-            except Exception as e:
-                logger.debug("get_file(signed URL) on endpoint failed: %s", e)
-                continue
-            if not raw or _map_bytes_looks_like_error_json(raw):
-                continue
-            return raw
+            raw = _signed_file(proto, str(u).strip())
+            if raw:
+                return raw
         return None
 
     def _request_map_object_sync(self) -> str | None:
@@ -1004,28 +971,24 @@ class DreameHomeClient:
         """
         if _map_decoder_cls is None:
             return None
-        slot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
-        res = self._safe_call("send", "get_properties", [{"did": slot, "siid": 6, "piid": 8}])
-        value = res[0].get("value") if isinstance(res, list) and res else None
-        try:
-            obj = json.loads(value).get("object_name") if isinstance(value, str) else None
-        except ValueError:
-            obj = None
+        obj = self._saved_map_list_name()
         if not obj:
             return None
         raw = self._fetch_map_bytes_from_cloud_url(obj)
         if not raw:
             return None
-        data = json.loads(_map_raw_bytes_to_str(raw))
-        current = data.get("curr_id")
-        chosen = None
-        for entry in data.get("mapstr") or []:
-            decoded = _map_decoder_cls.decode_saved_map(entry.get("map", ""), 1, int(entry.get("angle") or 0), None)
-            if decoded is None:
-                continue
-            if chosen is None or getattr(decoded, "map_id", None) == current:
-                chosen = decoded
+        chosen = _current_saved_map(json.loads(_map_raw_bytes_to_str(raw)))
         return (chosen, obj) if chosen is not None else None
+
+    def _saved_map_list_name(self) -> str | None:
+        """The object name of the saved-map list file, from property 6.8, or None."""
+        slot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
+        res = self._safe_call("send", "get_properties", [{"did": slot, "siid": 6, "piid": 8}])
+        value = res[0].get("value") if isinstance(res, list) and res else None
+        try:
+            return json.loads(value).get("object_name") if isinstance(value, str) else None
+        except ValueError:
+            return None
 
     def _saved_map_result(self) -> dict | None:
         """The saved map as a get_map answer with "source": "saved", or None."""
@@ -1230,6 +1193,113 @@ class DreameHomeClient:
         return None
 
 
+def _current_saved_map(data: dict) -> Any:
+    """The saved map the robot uses now (curr_id), else the first that decodes; None when none does."""
+    assert _map_decoder_cls is not None
+    current = data.get("curr_id")
+    chosen = None
+    for entry in data.get("mapstr") or []:
+        decoded = _map_decoder_cls.decode_saved_map(entry.get("map", ""), 1, int(entry.get("angle") or 0), None)
+        if decoded is None:
+            continue
+        if chosen is None or getattr(decoded, "map_id", None) == current:
+            chosen = decoded
+    return chosen
+
+
+def _object_name_property(endpoint: Any) -> str | None:
+    """The map's object name from the endpoint's OBJECT_NAME property (6.3), or None."""
+    from custom_components.dreame_vacuum.dreame.const import (  # type: ignore[import-not-found]
+        MAP_PARAMETER_VALUE,
+    )
+    from custom_components.dreame_vacuum.dreame.types import (  # type: ignore[import-not-found]
+        DIID,
+        DreameVacuumProperty,
+    )
+
+    r = endpoint.get_properties(DIID(DreameVacuumProperty.OBJECT_NAME))
+    if not r or len(r) == 0:
+        return None
+    first = r[0]
+    val = first.get(MAP_PARAMETER_VALUE) or first.get("value")
+    if val is None:
+        return None
+    return _object_name_value(val)
+
+
+def _object_name_value(val: Any) -> str | None:
+    """The object name in a property value: a list's first item, a JSON list's first item, or the text."""
+    if isinstance(val, (list, tuple)) and val:
+        return str(val[0])
+    if isinstance(val, str):
+        s = val.strip()
+        if s.startswith("["):
+            j = json.loads(s)
+            if isinstance(j, (list, tuple)) and j:
+                return str(j[0])
+        return s
+    return None
+
+
+def _interim_url(proto: Any, object_name: str) -> Any:
+    """The endpoint's interim address for the map file: a URL, the url field of its answer, or None."""
+    u: Any = None
+    try:
+        if hasattr(proto, "get_interim_file_url"):
+            u = proto.get_interim_file_url(object_name)
+    except Exception as e:
+        logger.debug("get_interim_file_url: %s", e)
+    if u is not None and not (isinstance(u, str) and (u or "").strip().lower().startswith("http")):
+        if isinstance(u, dict):
+            u2 = (u or {}).get("url") or (u or {}).get("fileUrl")
+            u = u2 if isinstance(u2, str) else None
+        else:
+            u = None
+    return u
+
+
+def _file_url(proto: Any, object_name: str) -> Any:
+    """The endpoint's get_file_url address for the map file, or None."""
+    o = object_name if str(object_name).startswith("/") else f"/{object_name}"
+    try:
+        d = proto.get_file_url(o)
+    except Exception as e:
+        logger.debug("get_file_url: %s", e)
+        return None
+    if isinstance(d, dict):
+        return d.get("url") or d.get("fileUrl")
+    if isinstance(d, str) and d.strip().lower().startswith("http"):
+        return d
+    return None
+
+
+def _signed_file(proto: Any, url: str) -> bytes | None:
+    """The map file from a signed address, or None when it fails or is an error answer."""
+    if not hasattr(proto, "get_file"):
+        return None
+    try:
+        raw = proto.get_file(url)
+    except Exception as e:
+        logger.debug("get_file(signed URL) on endpoint failed: %s", e)
+        return None
+    if not raw or _map_bytes_looks_like_error_json(raw):
+        return None
+    return raw
+
+
+def _device_records(cloud: Any) -> list:
+    """The account's device records, from either shape the cloud answers in; [] when it fails."""
+    try:
+        devices = cloud.get_devices()
+    except Exception:
+        devices = None
+    if isinstance(devices, dict):
+        return devices.get("page", {}).get("records", []) or []
+    if isinstance(devices, list):
+        return devices
+    return []
+
+
 def _first_map(dec: Any) -> Any:
     """The map in what decode_map returned: the first of a tuple, or the value itself."""
     if isinstance(dec, tuple) and len(dec) > 0:
@@ -1363,13 +1433,8 @@ def read_credentials_dir(path: str | Path) -> tuple[str | None, str | None]:
     return values[0], values[1]
 
 
-def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClient | None:
-    """Build a DreameHomeClient from environment variables supporting Hybrid Mode.
-
-    With ``credentials_dir``, the account and password come from the files in
-    that folder (see read_credentials_dir) and take precedence over the
-    environment; everything else still comes from the environment and .env.
-    """
+def _load_env() -> None:
+    """Read .env from the working folder, or from the repository when that gives no login."""
     load_dotenv()
     if not os.environ.get("DREAME_USER") and not os.environ.get("DREAME_IP"):
         # Fleet starters may launch uvicorn with a CWD outside the repo root,
@@ -1377,12 +1442,28 @@ def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClie
         _repo_env = Path(__file__).resolve().parent.parent.parent / ".env"
         if _repo_env.is_file():
             load_dotenv(_repo_env)
+
+
+def _login_from(credentials_dir: str | Path | None) -> tuple[str, str]:
+    """The account and password: the folder's files when given and present, else the environment."""
     user = os.environ.get("DREAME_USER", "").strip()
     pwd = os.environ.get("DREAME_PASSWORD", "").strip()
     if credentials_dir is not None:
         file_user, file_pwd = read_credentials_dir(credentials_dir)
         user = file_user or user
         pwd = file_pwd or pwd
+    return user, pwd
+
+
+def client_from_env(credentials_dir: str | Path | None = None) -> DreameHomeClient | None:
+    """Build a DreameHomeClient from environment variables supporting Hybrid Mode.
+
+    With ``credentials_dir``, the account and password come from the files in
+    that folder (see read_credentials_dir) and take precedence over the
+    environment; everything else still comes from the environment and .env.
+    """
+    _load_env()
+    user, pwd = _login_from(credentials_dir)
     ip = os.environ.get("DREAME_IP", "").strip()
     token = os.environ.get("DREAME_TOKEN", "").strip()
 
