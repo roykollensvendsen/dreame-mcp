@@ -1070,143 +1070,183 @@ class DreameHomeClient:
             if not self._protocol:
                 return {"success": False, "error": "Not connected"}
             try:
-                name_resolved = self._request_map_object_sync() or self._resolve_live_map_object_name()
-                map_key: str | None = None
-                if name_resolved:
-                    name_resolved, map_key = _split_object_name(name_resolved)
-                raw: bytes | None = None
-                on_display: str | None = name_resolved
-                attempted: list[dict[str, str]] = []
-                ctry = getattr(self._protocol, "_country", None)
-                if ctry is None and getattr(self._protocol, "cloud", None) is not None:
-                    ctry = getattr(self._protocol.cloud, "_country", None)
-
-                if name_resolved and str(name_resolved).strip("/"):
-                    on_display = str(name_resolved).strip()
-                    logger.info(
-                        "Map fetch: object_name=%s (signed-URL first; get_device_file fallback)",
-                        on_display,
-                    )
-                    raw = self._fetch_map_bytes_from_cloud_url(on_display)
-                    if raw and not _map_bytes_looks_like_error_json(raw):
-                        logger.info(
-                            "Map fetch: %d bytes via signed-URL + get_file",
-                            len(raw),
-                        )
-                        attempted.append({"step": "get_interim_file_url+get_file", "object_name": on_display or ""})
-                    else:
-                        raw = None
-                    if not raw and on_display:
-                        fail_count = 0
-                        max_fails = 2
-                        for file_type in ("map", 0):
-                            if fail_count >= max_fails or raw is not None:
-                                break
-                            step = f"get_device_file:{file_type!s}"
-                            attempted.append({"step": step, "object_name": on_display or ""})
-                            chunk = self._safe_call("get_device_file", on_display, file_type)
-                            if chunk is not None and not _map_bytes_looks_like_error_json(chunk):
-                                raw = chunk
-                                logger.info("Map fetch: %s -> %d bytes", step, len(raw or b""))
-                                break
-                            fail_count += 1
-
-                if not raw:
-                    logger.info("Map: trying property-based retrieval (siid=23, piid=1)")
-                    try:
-                        mslot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
-                        res = self._safe_call("get_properties", [{"did": mslot, "siid": 23, "piid": 1}])
-                        if res and isinstance(res, list) and "value" in res[0]:
-                            raw_val = res[0]["value"]
-                            if isinstance(raw_val, str) and raw_val:
-                                raw = base64.b64decode(raw_val)
-                                on_display = "property_23_1"
-                                logger.info("Map fetch: property 23.1 -> %d bytes", len(raw))
-                    except Exception as e:
-                        logger.warning("Property-based map fetch failed: %s", e)
-
-                if not raw and on_display and not str(on_display).startswith("property_"):
-                    o = str(on_display).strip()
-                    if o:
-                        obj_for_url = o if o.startswith("/") else f"/{o}"
-                        try:
-                            url_data = self._safe_call("get_file_url", obj_for_url)
-                            url = None
-                            if isinstance(url_data, dict):
-                                url = url_data.get("url") or url_data.get("fileUrl")
-                            if isinstance(url, str) and url.strip():
-                                raw = self._safe_call("get_file", url.strip())
-                        except Exception as e:
-                            logger.debug("get_file_url fallback: %s", e)
-
-                if not raw or _map_bytes_looks_like_error_json(raw):
-                    saved_result = self._saved_map_result()
-                    if saved_result is not None:
-                        return saved_result
-                    return {
-                        "success": False,
-                        "error": "Map fetch failed (signed URL, get_device_file, and property 23.1 all failed)",
-                        "diagnostic_info": {
-                            "did": str(self._did),
-                            "object_name": on_display,
-                            "country": ctry,
-                            "attempted": attempted,
-                            "hint": "Wake the robot, open the Dreame app, confirm DREAME_COUNTRY and DREAME_DID. "
-                            "get_device_file can return 80001 when the cloud cannot reach the device.",
-                        },
-                    }
-
-                result: dict[str, Any] = {
-                    "success": True,
-                    "source": "live",
-                    "object_name": on_display,
-                    "raw_bytes": len(raw),
-                }
-
-                if _map_decoder_cls and self._map_renderer:
-                    try:
-                        raw_str = _map_raw_bytes_to_str(raw)
-                        mm = self._map_manager
-                        model = self._model or getattr(self._dreame_cloud, "_model", None)
-                        aes_iv = _map_aes_iv(model) or (getattr(mm, "_aes_iv", None) if mm is not None else None)
-                        dec = _map_decoder_cls.decode_map(raw_str, 1, 0, aes_iv, map_key)
-                        mdl: Any = None
-                        if isinstance(dec, tuple) and len(dec) > 0:
-                            mdl = dec[0]
-                        elif dec is not None:
-                            mdl = dec
-                        if mdl is not None:
-                            out = self._map_renderer.render_map(mdl, 0, 0)
-                            if out:
-                                result["image"] = base64.b64encode(out).decode()
-                            result["map_data"] = _map_object_to_dict(mdl)
-                        else:
-                            result["render_error"] = (
-                                "decode_map returned no MapData (partial decode failed or wrong key)"
-                            )
-                    except Exception as e:
-                        logger.warning("Map decode/render failed: %s", e)
-                        result["render_error"] = str(e)
-                    if "map_data" not in result:
-                        # Downloaded but not decrypted (an unknown IV, a wrong key):
-                        # the saved map still has the rooms.
-                        saved_result = self._saved_map_result()
-                        if saved_result is not None:
-                            saved_result["live_error"] = result.get("render_error")
-                            return saved_result
-                else:
-                    missing: list[str] = []
-                    if not _map_decoder_cls or not _map_renderer_cls:
-                        missing.append("Tasshack map import")
-                    if self._map_renderer is None and _map_renderer_cls:
-                        missing.append("renderer init")
-                    result["render_error"] = "Map PNG unavailable: " + (", ".join(missing) or "unknown")
-
-                result["raw_b64"] = base64.b64encode(raw).decode()
-                return result
+                return self._fetch_live_map()
             except Exception as e:
                 logger.exception("get_map failed")
                 return {"success": False, "error": str(e)}
+
+    def _fetch_live_map(self) -> dict:
+        """The live map, decoded when it can be; the saved map, or why there is none, when it cannot."""
+        name_resolved = self._request_map_object_sync() or self._resolve_live_map_object_name()
+        map_key: str | None = None
+        if name_resolved:
+            name_resolved, map_key = _split_object_name(name_resolved)
+        attempted: list[dict[str, str]] = []
+        raw, on_display = self._download_map(name_resolved, attempted)
+
+        if not raw or _map_bytes_looks_like_error_json(raw):
+            saved_result = self._saved_map_result()
+            if saved_result is not None:
+                return saved_result
+            return self._no_map(on_display, attempted)
+
+        result: dict[str, Any] = {
+            "success": True,
+            "source": "live",
+            "object_name": on_display,
+            "raw_bytes": len(raw),
+        }
+        if _map_decoder_cls and self._map_renderer:
+            saved_result = self._decode_live_map(result, raw, map_key)
+            if saved_result is not None:
+                return saved_result
+        else:
+            result["render_error"] = _render_unavailable(self._map_renderer)
+
+        result["raw_b64"] = base64.b64encode(raw).decode()
+        return result
+
+    def _download_map(
+        self, name_resolved: str | None, attempted: list[dict[str, str]]
+    ) -> tuple[bytes | None, str | None]:
+        """The map file's bytes and the name they came by, trying each way the cloud offers in turn."""
+        raw: bytes | None = None
+        on_display: str | None = name_resolved
+        if name_resolved and str(name_resolved).strip("/"):
+            on_display = str(name_resolved).strip()
+            logger.info(
+                "Map fetch: object_name=%s (signed-URL first; get_device_file fallback)",
+                on_display,
+            )
+            raw = self._map_by_object_name(on_display, attempted)
+
+        if not raw:
+            from_property = self._map_from_property()
+            if from_property is not None:
+                raw, on_display = from_property, "property_23_1"
+
+        if not raw and on_display and not str(on_display).startswith("property_"):
+            o = str(on_display).strip()
+            if o:
+                raw = self._map_by_file_url(o) or raw
+        return raw, on_display
+
+    def _map_by_object_name(self, on_display: str, attempted: list[dict[str, str]]) -> bytes | None:
+        """The map file by its object name: a signed URL first, then get_device_file."""
+        raw = self._fetch_map_bytes_from_cloud_url(on_display)
+        if raw and not _map_bytes_looks_like_error_json(raw):
+            logger.info(
+                "Map fetch: %d bytes via signed-URL + get_file",
+                len(raw),
+            )
+            attempted.append({"step": "get_interim_file_url+get_file", "object_name": on_display or ""})
+            return raw
+        if not on_display:
+            return None
+        for file_type in ("map", 0):
+            step = f"get_device_file:{file_type!s}"
+            attempted.append({"step": step, "object_name": on_display or ""})
+            chunk = self._safe_call("get_device_file", on_display, file_type)
+            if chunk is not None and not _map_bytes_looks_like_error_json(chunk):
+                logger.info("Map fetch: %s -> %d bytes", step, len(chunk or b""))
+                return chunk
+        return None
+
+    def _map_from_property(self) -> bytes | None:
+        """The map as the robot's property 23.1 holds it, base64 in a string; None when it has none."""
+        logger.info("Map: trying property-based retrieval (siid=23, piid=1)")
+        try:
+            mslot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
+            res = self._safe_call("get_properties", [{"did": mslot, "siid": 23, "piid": 1}])
+            if res and isinstance(res, list) and "value" in res[0]:
+                raw_val = res[0]["value"]
+                if isinstance(raw_val, str) and raw_val:
+                    raw = base64.b64decode(raw_val)
+                    logger.info("Map fetch: property 23.1 -> %d bytes", len(raw))
+                    return raw
+        except Exception as e:
+            logger.warning("Property-based map fetch failed: %s", e)
+        return None
+
+    def _map_by_file_url(self, o: str) -> Any:
+        """The map file through get_file_url and get_file; None when that gives nothing."""
+        obj_for_url = o if o.startswith("/") else f"/{o}"
+        try:
+            url_data = self._safe_call("get_file_url", obj_for_url)
+            url = None
+            if isinstance(url_data, dict):
+                url = url_data.get("url") or url_data.get("fileUrl")
+            if isinstance(url, str) and url.strip():
+                return self._safe_call("get_file", url.strip())
+        except Exception as e:
+            logger.debug("get_file_url fallback: %s", e)
+        return None
+
+    def _no_map(self, on_display: str | None, attempted: list[dict[str, str]]) -> dict:
+        """The answer when no way gave a map and there is no saved one either."""
+        ctry = getattr(self._protocol, "_country", None)
+        cloud = getattr(self._protocol, "cloud", None)
+        if ctry is None and cloud is not None:
+            ctry = getattr(cloud, "_country", None)
+        return {
+            "success": False,
+            "error": "Map fetch failed (signed URL, get_device_file, and property 23.1 all failed)",
+            "diagnostic_info": {
+                "did": str(self._did),
+                "object_name": on_display,
+                "country": ctry,
+                "attempted": attempted,
+                "hint": "Wake the robot, open the Dreame app, confirm DREAME_COUNTRY and DREAME_DID. "
+                "get_device_file can return 80001 when the cloud cannot reach the device.",
+            },
+        }
+
+    def _decode_live_map(self, result: dict[str, Any], raw: bytes, map_key: str | None) -> dict | None:
+        """Decode and draw the live map into ``result``; the saved map instead when it cannot be decoded."""
+        try:
+            raw_str = _map_raw_bytes_to_str(raw)
+            mm = self._map_manager
+            model = self._model or getattr(self._dreame_cloud, "_model", None)
+            aes_iv = _map_aes_iv(model) or (getattr(mm, "_aes_iv", None) if mm is not None else None)
+            assert _map_decoder_cls is not None and self._map_renderer is not None
+            mdl = _first_map(_map_decoder_cls.decode_map(raw_str, 1, 0, aes_iv, map_key))
+            if mdl is not None:
+                out = self._map_renderer.render_map(mdl, 0, 0)
+                if out:
+                    result["image"] = base64.b64encode(out).decode()
+                result["map_data"] = _map_object_to_dict(mdl)
+            else:
+                result["render_error"] = "decode_map returned no MapData (partial decode failed or wrong key)"
+        except Exception as e:
+            logger.warning("Map decode/render failed: %s", e)
+            result["render_error"] = str(e)
+        if "map_data" not in result:
+            # Downloaded but not decrypted (an unknown IV, a wrong key):
+            # the saved map still has the rooms.
+            saved_result = self._saved_map_result()
+            if saved_result is not None:
+                saved_result["live_error"] = result.get("render_error")
+                return saved_result
+        return None
+
+
+def _first_map(dec: Any) -> Any:
+    """The map in what decode_map returned: the first of a tuple, or the value itself."""
+    if isinstance(dec, tuple) and len(dec) > 0:
+        return dec[0]
+    if dec is not None:
+        return dec
+    return None
+
+
+def _render_unavailable(renderer: Any) -> str:
+    """Why there is no picture of the map: which part of the map library is missing."""
+    missing: list[str] = []
+    if not _map_decoder_cls or not _map_renderer_cls:
+        missing.append("Tasshack map import")
+    if renderer is None and _map_renderer_cls:
+        missing.append("renderer init")
+    return "Map PNG unavailable: " + (", ".join(missing) or "unknown")
 
 
 # ---------------------------------------------------------------------------
