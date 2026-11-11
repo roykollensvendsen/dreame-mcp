@@ -82,9 +82,10 @@ comes back at once. Every call then answers within about 14 seconds:
 - when the cloud cannot be reached: "I can't reach the Dreame cloud right now.
   Try again in a minute." For a command it adds "The vacuum wasn't told
   anything." before the last sentence, and `success` is false.
-- when the password is wrong: "The Dreame cloud turned down the login. Check
-  the password in the vacuum's login files on the computer, then ask me to
-  restart the vacuum plugin."
+- when the password is wrong: "The Dreame cloud turned down the login. Ask
+  the claude-voice manager to open the DreameHome login boxes, then to restart
+  the vacuum plugin." The manager's boxes are masked, so the password never
+  touches a terminal or a chat.
 - when the cloud wants a 2FA or captcha check: "Open the DreameHome app, then
   ask again in a minute."
 
