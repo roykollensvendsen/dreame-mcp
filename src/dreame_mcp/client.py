@@ -550,79 +550,11 @@ class DreameHomeClient:
         # control path: legacy Xiaomi auth (account.xiaomi.com) rejects
         # DreameHome accounts with 70016, and the null-token UDP trick no
         # longer works on current firmware.
-        self._dreame_cloud = None
-        if _cloud_cls is not None and self._username and self._password:
-            try:
-                self._dreame_cloud = _cloud_cls(
-                    self._username,
-                    self._password,
-                    account_type="dreame",
-                    country=self._country,
-                    auth_key=self._auth_key,
-                    did=str(self._did) if self._did else None,
-                )
-            except TypeError:
-                # Upstream v1 refs use (username, password, country, auth_key, device_id)
-                self._dreame_cloud = _cloud_cls(
-                    self._username,
-                    self._password,
-                    country=self._country,
-                    auth_key=self._auth_key,
-                    device_id=str(self._did) if self._did else None,
-                )
+        self._dreame_cloud = self._make_dreame_cloud()
 
         cloud = self._dreame_cloud or (getattr(self._protocol, "cloud", None) if self._username else None)
         if cloud is not None:
-            ok = cloud.login()
-            if ok:
-                logger.info("Cloud login OK (%s)", type(cloud).__name__)
-                self._cloud_error = None
-                # Resolve DID + command routing host from the device list. The
-                # bindDomain (e.g. "10000.mt.eu.iot.dreame.tech:19973") routes
-                # sendCommand to the device's region gateway — without it the
-                # API answers 404.
-                try:
-                    devices = cloud.get_devices()
-                except Exception:
-                    devices = None
-                records: list = []
-                if isinstance(devices, dict):
-                    records = devices.get("page", {}).get("records", []) or []
-                elif isinstance(devices, list):
-                    records = devices
-                if records:
-                    target = None
-                    if self._ip:
-                        target = next((d for d in records if d.get("localip") == self._ip), None)
-                    if not target:
-                        target = next((d for d in records if str(d.get("did", "")) == str(self._did)), None)
-                    if not target:
-                        target = records[0]
-                    if target:
-                        self._did = str(target.get("did", "")) or self._did
-                        self._model = target.get("model") or self._model
-                        # The cloud client was constructed before the DID was
-                        # known, and it builds every command payload from its own
-                        # copy of it. Left unset, sendCommand posts did="None" and
-                        # the gateway answers 400 Bad Request.
-                        if self._did and getattr(cloud, "_did", None) != self._did:
-                            cloud._did = self._did
-                        bind = target.get("bindDomain")
-                        if bind and hasattr(cloud, "_host"):
-                            cloud._host = bind
-                            logger.info("Cloud command host: %s (did=%s)", bind, self._did)
-                        elif self._did:
-                            logger.info("DID=%s (no bindDomain in device record)", self._did)
-                    # Populate _model/_uid on the cloud client so the map file API
-                    # (get_interim_file_url) can sign URLs. Depends on _did being
-                    # set above — it posts {"did": self._did} as well.
-                    try:
-                        cloud.get_device_info()
-                    except Exception as e:
-                        logger.debug("cloud get_device_info failed: %s", e)
-            else:
-                self._cloud_error = _classify_cloud_failure(cloud)
-                logger.warning("Cloud login failed: %s", self._cloud_error)
+            self._cloud_login(cloud)
 
         self._apply_local_miot_tuning()
 
@@ -632,6 +564,96 @@ class DreameHomeClient:
             logger.error("No local connection and cloud login failed")
             return False
 
+        self._start_map_tools()
+
+        logger.info(
+            "Connected [ip=%s null_token=%s did=%s cloud=%s]",
+            self._ip,
+            self._token == "0" * 32,
+            self._did,
+            cloud_ok,
+        )
+        return True
+
+    def _make_dreame_cloud(self) -> Any:
+        """The Dreame-native cloud client, when there is a login; None otherwise."""
+        if _cloud_cls is None or not self._username or not self._password:
+            return None
+        try:
+            return _cloud_cls(
+                self._username,
+                self._password,
+                account_type="dreame",
+                country=self._country,
+                auth_key=self._auth_key,
+                did=str(self._did) if self._did else None,
+            )
+        except TypeError:
+            # Upstream v1 refs use (username, password, country, auth_key, device_id)
+            return _cloud_cls(
+                self._username,
+                self._password,
+                country=self._country,
+                auth_key=self._auth_key,
+                device_id=str(self._did) if self._did else None,
+            )
+
+    def _cloud_login(self, cloud: Any) -> None:
+        """Log in to the cloud and learn the robot from its device list, or keep why the login failed."""
+        if not cloud.login():
+            self._cloud_error = _classify_cloud_failure(cloud)
+            logger.warning("Cloud login failed: %s", self._cloud_error)
+            return
+        logger.info("Cloud login OK (%s)", type(cloud).__name__)
+        self._cloud_error = None
+        # Resolve DID + command routing host from the device list. The
+        # bindDomain (e.g. "10000.mt.eu.iot.dreame.tech:19973") routes
+        # sendCommand to the device's region gateway — without it the
+        # API answers 404.
+        records = _device_records(cloud)
+        if not records:
+            return
+        target = self._choose_device(records)
+        if target:
+            self._adopt_device(cloud, target)
+        # Populate _model/_uid on the cloud client so the map file API
+        # (get_interim_file_url) can sign URLs. Depends on _did being
+        # set above — it posts {"did": self._did} as well.
+        try:
+            cloud.get_device_info()
+        except Exception as e:
+            logger.debug("cloud get_device_info failed: %s", e)
+
+    def _choose_device(self, records: list) -> Any:
+        """The robot's record: by its IP, else by its device id, else the first one."""
+        target = None
+        if self._ip:
+            target = next((d for d in records if d.get("localip") == self._ip), None)
+        if not target:
+            target = next((d for d in records if str(d.get("did", "")) == str(self._did)), None)
+        if not target:
+            target = records[0]
+        return target
+
+    def _adopt_device(self, cloud: Any, target: dict) -> None:
+        """Take the robot's id, model and command host from its record."""
+        self._did = str(target.get("did", "")) or self._did
+        self._model = target.get("model") or self._model
+        # The cloud client was constructed before the DID was
+        # known, and it builds every command payload from its own
+        # copy of it. Left unset, sendCommand posts did="None" and
+        # the gateway answers 400 Bad Request.
+        if self._did and getattr(cloud, "_did", None) != self._did:
+            cloud._did = self._did
+        bind = target.get("bindDomain")
+        if bind and hasattr(cloud, "_host"):
+            cloud._host = bind
+            logger.info("Cloud command host: %s (did=%s)", bind, self._did)
+        elif self._did:
+            logger.info("DID=%s (no bindDomain in device record)", self._did)
+
+    def _start_map_tools(self) -> None:
+        """The map manager and renderer, when the map library loaded."""
         if _map_manager_cls is not None:
             try:
                 self._map_manager = _map_manager_cls(self._protocol)
@@ -647,15 +669,6 @@ class DreameHomeClient:
                     self._map_renderer = _map_renderer_cls()
             except Exception as e:
                 logger.warning("DreameVacuumMapRenderer init failed: %s", e)
-
-        logger.info(
-            "Connected [ip=%s null_token=%s did=%s cloud=%s]",
-            self._ip,
-            self._token == "0" * 32,
-            self._did,
-            cloud_ok,
-        )
-        return True
 
     def disconnect(self) -> None:
         """Tear down protocol; executor is kept for process lifetime (server exit)."""
@@ -1228,6 +1241,19 @@ class DreameHomeClient:
                 saved_result["live_error"] = result.get("render_error")
                 return saved_result
         return None
+
+
+def _device_records(cloud: Any) -> list:
+    """The account's device records, from either shape the cloud answers in; [] when it fails."""
+    try:
+        devices = cloud.get_devices()
+    except Exception:
+        devices = None
+    if isinstance(devices, dict):
+        return devices.get("page", {}).get("records", []) or []
+    if isinstance(devices, list):
+        return devices
+    return []
 
 
 def _first_map(dec: Any) -> Any:
