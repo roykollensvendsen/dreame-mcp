@@ -3,7 +3,7 @@
 
 The levels are the ones Roy's phone page shows for every voice plugin:
 coverage, the mutation tally (scripts/mutate.py), the number of tests, lint and
-type errors, import cycles, the share of copied code, the most tangled function
+type errors, import cycles, imports that break the layers, the share of copied code, the most tangled function
 in each module, and the suite's time. A push to the voice branch measures them
 and keeps them with its run as the artifact `quality-levels`. A pull request is
 compared with the levels its base kept, and fails when one gets worse, unless
@@ -43,7 +43,7 @@ PACKAGE = SOURCE / "dreame_mcp"
 #: Percentage points coverage may drop by: it differs a little between machines.
 COVERAGE_WOBBLE = 0.5
 HIGHER = ("coverage", "mutation", "tests")
-LOWER = ("lint_errors", "type_errors", "cycles", "duplication")
+LOWER = ("lint_errors", "type_errors", "cycles", "layer_violations", "duplication")
 #: The most tangled function a new module may start with.
 NEW_MODULE_CEILING = 15
 #: Lines in a row, indentation ignored, that count as a copied block.
@@ -52,6 +52,15 @@ KEYS = (*HIGHER, *LOWER, "complexity", "test_seconds")
 EXCEPTION = re.compile(r"^\s*ratchet-exception:\s*([a-z_]+)", re.IGNORECASE | re.MULTILINE)
 TALLY = re.compile(r"(\d+)/(\d+) rules failed the test named after them")
 DEFAULT_BUDGET = {"seconds": 90, "tolerance": 0.25}
+#: Each module's layer: when it loads, a module may import only modules in lower layers.
+#: An import inside a function runs later, when it is called, so it is not counted.
+LAYERS = {
+    **dict.fromkeys(("__init__", "prompts", "state", "activity_log", "client", "map_export"), 0),  # foundations
+    **dict.fromkeys(("portmanteau", "simulator"), 1),  # built on the client and the shared state
+    **dict.fromkeys(("agentic", "voice"), 2),  # what Claude calls
+    "server": 3,  # the web server and the MCP server around it all
+    "__main__": 4,  # `python -m dreame_mcp`, which starts the server
+}
 
 
 # -- measuring ----------------------------------------------------------------
@@ -94,12 +103,24 @@ def _module_names(package_dir: Path) -> dict[str, Path]:
     return names
 
 
-def _imports(name: str, path: Path, names: set[str]) -> set[str]:
-    """The package's own modules that ``name`` imports."""
+def _load_time(tree: ast.AST) -> list[ast.AST]:
+    """Every node that runs when the module loads: all of it but the bodies of functions."""
+    found, todo = [], [tree]
+    while todo:
+        node = todo.pop()
+        found.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            todo.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def _imports(name: str, path: Path, names: set[str], load_time: bool = False) -> set[str]:
+    """The package's own modules that ``name`` imports; with ``load_time``, only as it loads."""
     is_package = path.name == "__init__.py"
     here = name if is_package else name.rpartition(".")[0]
     found: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in _load_time(tree) if load_time else ast.walk(tree):
         if isinstance(node, ast.Import):
             targets = [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
@@ -150,6 +171,27 @@ def cycles(package_dir: Path) -> int:
         if name not in index:
             visit(name)
     return rings
+
+
+def layer_breaches(package_dir: Path, layers: dict[str, int]) -> list[str]:
+    """Every load-time import that reaches up or sideways, and every module with no layer."""
+    modules = _module_names(package_dir)
+    prefix = package_dir.name + "."
+
+    def short(name: str) -> str:
+        return "__init__" if name == package_dir.name else name.removeprefix(prefix)
+
+    found = []
+    for name, path in sorted(modules.items(), key=lambda kv: short(kv[0])):
+        me = short(name)
+        if me not in layers:
+            found.append(f"{me} has no layer")
+            continue
+        below = _imports(name, path, set(modules), load_time=True) - {package_dir.name}  # `from . import x`
+        for used in sorted(short(u) for u in below):
+            if used in layers and layers[used] >= layers[me]:
+                found.append(f"{me} (layer {layers[me]}) imports {used} (layer {layers[used]})")
+    return sorted(found)
 
 
 def duplication(folder: Path) -> float:
@@ -219,6 +261,7 @@ def measure(*, skip_mutation: bool = False, recorded: dict[str, Any] | None = No
         "lint_errors": len(json.loads(lint.stdout or "[]")),
         "type_errors": int(type_summary.get("errorCount", 0)),
         "cycles": cycles(PACKAGE),
+        "layer_violations": len(layer_breaches(PACKAGE, LAYERS)),
         "duplication": duplication(SOURCE),
         "complexity": complexity(SOURCE),
         "test_seconds": seconds,
