@@ -100,6 +100,8 @@ NOTHING_SENT = " The vacuum wasn't told anything."
 UNREACHABLE = "I can't reach the Dreame cloud right now."
 TRY_AGAIN = "Try again in a minute."
 RESTART = "then ask me to restart the vacuum plugin."
+#: The login is typed into the manager's masked boxes, so it never touches a terminal or a chat.
+LOGIN_BOXES = "Ask the claude-voice manager to open the DreameHome login boxes, then to restart the vacuum plugin."
 SIMULATED = "SIMULATED: this is a pretend vacuum, not the real one. Say so when you report on it. "
 
 
@@ -226,7 +228,7 @@ def _login_problem(cloud_error: str | None) -> tuple[str, str]:
     if "70016" in text or "credentials" in text:
         return (
             "The Dreame cloud turned down the login.",
-            f"Check the password in the vacuum's login files on the computer, {RESTART}",
+            LOGIN_BOXES,
         )
     if "2fa" in text or "verification" in text or "captcha" in text:
         return (
@@ -285,7 +287,7 @@ class Link:
         if client is None:
             raise Unavailable(
                 "The vacuum isn't set up on the computer yet: its Dreame login is missing.",
-                f"Put the DreameHome login in the files user and password in .config/dreame, {RESTART}",
+                LOGIN_BOXES,
             )
         if self._task is None:
             waited = self._clock() - (self._last_try or float("-inf"))
