@@ -56,3 +56,5 @@ _dashboard/
 scripts/.mutate-recovery.json
 # Coverage data from scripts/ratchet.py measure
 .coverage
+# Worktrees coding agents make next to the project
+.claude/worktrees/
