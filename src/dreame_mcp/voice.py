@@ -128,6 +128,25 @@ def _room_key(name: str) -> str:
     return " ".join(words)
 
 
+def _pick_rooms(asked: list[str], room_list: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
+    """The map's rooms the user named, each once and in their order, or the spoken reason there are none."""
+    existing = _listed([room["name"] for room in room_list])
+    if not asked:
+        return [], f"Which rooms? The map has {existing}."
+    known = {_room_key(room["name"]): room for room in room_list}
+    unknown = [name.strip() for name in asked if _room_key(name) not in known]
+    # RULE: an unknown room is refused
+    if unknown:
+        these = "There is no room called " + _listed([f"'{u}'" for u in unknown])
+        return [], f"{these}. The map has {existing}."
+    chosen: list[dict[str, Any]] = []
+    for name in asked:
+        room = known[_room_key(name)]
+        if room not in chosen:
+            chosen.append(room)
+    return chosen, None
+
+
 class Unavailable(Exception):
     """The vacuum cannot be reached; ``say`` is the spoken reason."""
 
@@ -514,41 +533,33 @@ class Vacuum:
             room_list = m["map_data"].get("room_list") or []
             if not room_list:
                 return self._answer(False, "Its map has no rooms, so I can't clean by room.", r, rooms=[])
-            known = {_room_key(room["name"]): room for room in room_list}
-            existing = _listed([room["name"] for room in room_list])
-            if not asked:
-                return self._answer(False, f"Which rooms? The map has {existing}.", r, rooms=[])
-            unknown = [name.strip() for name in asked if _room_key(name) not in known]
-            # RULE: an unknown room is refused
-            if unknown:
-                these = "There is no room called " + _listed([f"'{u}'" for u in unknown])
-                return self._answer(False, f"{these}. The map has {existing}.", r, rooms=[])
-            chosen: list[dict[str, Any]] = []
-            for name in asked:
-                room = known[_room_key(name)]
-                if room not in chosen:
-                    chosen.append(room)
+            chosen, refusal = _pick_rooms(asked, room_list)
+            if refusal:
+                return self._answer(False, refusal, r, rooms=[])
             names = [room["name"] for room in chosen]
             client = await self.link.ready(deadline)
             result = await self._within(deadline, client.clean_rooms([int(room["id"]) for room in chosen]))
             if not result.get("success"):
                 logger.warning("room clean not accepted: %s", result.get("error"))
                 raise Unavailable("The Dreame cloud didn't take the command. Try again in a moment.")
-            after = await self._after(deadline)
-            if after is None:
-                return self._answer(
-                    True, f"I sent it to clean {_listed(names)}. I couldn't check yet whether it set off.", rooms=names
-                )
-            if after.cleaning:
-                say = f"Started cleaning {_listed(names)}, battery {after.battery} percent."
-                if after.battery is None:
-                    say = f"Started cleaning {_listed(names)}."
-                return self._answer(True, say, after, rooms=names)
-            return self._answer(
-                True, f"I sent it to clean {_listed(names)}. The vacuum says it is {after.words()}.", after, rooms=names
-            )
+            return self._set_off(await self._after(deadline), names)
 
         return await self._guarded(act, sent=True)
+
+    def _set_off(self, after: Reading | None, names: list[str]) -> dict[str, Any]:
+        """The answer once a room clean was sent, from the state read back after it."""
+        if after is None:
+            return self._answer(
+                True, f"I sent it to clean {_listed(names)}. I couldn't check yet whether it set off.", rooms=names
+            )
+        if after.cleaning:
+            say = f"Started cleaning {_listed(names)}, battery {after.battery} percent."
+            if after.battery is None:
+                say = f"Started cleaning {_listed(names)}."
+            return self._answer(True, say, after, rooms=names)
+        return self._answer(
+            True, f"I sent it to clean {_listed(names)}. The vacuum says it is {after.words()}.", after, rooms=names
+        )
 
     async def _simple(self, cmd: str, done: str, applies: Callable[[Reading], bool], nothing: str) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
