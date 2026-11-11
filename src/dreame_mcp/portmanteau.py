@@ -230,6 +230,46 @@ def _map_result(data: dict) -> str | ToolResult:
     )
 
 
+def _robot_where(md: dict, rooms: list) -> str | None:
+    """Where the live map puts the robot: on its dock, in which room; None when it says nothing."""
+    where = []
+    if md.get("docked"):
+        where.append("on its dock")
+    room = md.get("robot_room")
+    if room:
+        where.append(f"in {room['name']} (id {room['id']})")
+    elif rooms:
+        where.append("not inside a known room")
+    return ", ".join(where) if where else None
+
+
+def _map_data_lines(md: dict, *, live: bool) -> list[str]:
+    """The summary's lines from the decoded map: rooms, the robot (live map only), trail and zones."""
+    lines = []
+    rooms = md.get("room_list") or []
+    if rooms:
+        lines.append("- **Rooms:** " + ", ".join(f"{r['name']} (id {r['id']})" for r in rooms))
+    else:
+        lines.append(f"- **Rooms Detected:** {md.get('rooms', 0)}")
+    where = _robot_where(md, rooms) if live else None
+    if where:
+        lines.append("- **Robot:** " + where)
+    pos = md.get("robot_position")
+    if pos and live:
+        lines.append(f"- **Robot Position:** ({pos.get('x', 0)}, {pos.get('y', 0)})")
+
+    path = md.get("path", [])
+    if path:
+        lines.append(f"- **Movement Trail:** {len(path)} points")
+
+    vw = md.get("virtual_walls", [])
+    nga = md.get("no_go_areas", [])
+    nma = md.get("no_mop_areas", [])
+    if vw or nga or nma:
+        lines.append(f"- **Restricted Zones:** {len(vw)} Walls, {len(nga)} No-Go, {len(nma)} No-Mop")
+    return lines
+
+
 def _format_map_md(data: dict) -> str:
     if not data.get("success"):
         error_msg = data.get("error", "Unknown error")
@@ -249,35 +289,7 @@ def _format_map_md(data: dict) -> str:
 
     md = data.get("map_data")
     if isinstance(md, dict):
-        rooms = md.get("room_list") or []
-        if rooms:
-            lines.append("- **Rooms:** " + ", ".join(f"{r['name']} (id {r['id']})" for r in rooms))
-        else:
-            lines.append(f"- **Rooms Detected:** {md.get('rooms', 0)}")
-        if source == "live":
-            room = md.get("robot_room")
-            where = []
-            if md.get("docked"):
-                where.append("on its dock")
-            if room:
-                where.append(f"in {room['name']} (id {room['id']})")
-            elif rooms:
-                where.append("not inside a known room")
-            if where:
-                lines.append("- **Robot:** " + ", ".join(where))
-        pos = md.get("robot_position")
-        if pos and source == "live":
-            lines.append(f"- **Robot Position:** ({pos.get('x', 0)}, {pos.get('y', 0)})")
-
-        path = md.get("path", [])
-        if path:
-            lines.append(f"- **Movement Trail:** {len(path)} points")
-
-        vw = md.get("virtual_walls", [])
-        nga = md.get("no_go_areas", [])
-        nma = md.get("no_mop_areas", [])
-        if vw or nga or nma:
-            lines.append(f"- **Restricted Zones:** {len(vw)} Walls, {len(nga)} No-Go, {len(nma)} No-Mop")
+        lines.extend(_map_data_lines(md, live=source == "live"))
 
     if "image" in data:
         lines.append("\n> [!NOTE]\n> The rendered map is attached as an image.")
