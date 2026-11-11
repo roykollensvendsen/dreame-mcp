@@ -92,7 +92,7 @@ def test_idle_and_fully_charged_is_said_as_on_the_dock():
 
 
 def test_a_captcha_is_said_as_an_extra_check():
-    assert _login_problem("cloud asks for a captcha").startswith("The Dreame cloud wants an extra check")
+    assert _login_problem("cloud asks for a captcha")[0].startswith("The Dreame cloud wants an extra check")
 
 
 # -- logging in and out ------------------------------------------------------
@@ -103,7 +103,7 @@ async def test_a_login_that_raises_is_said_as_unreachable():
     fake.connect_raises = True
     a = await _vacuum(fake).status()
     assert not a["success"]
-    assert a["say"] == "I can't reach the Dreame cloud right now."
+    assert a["say"] == "I can't reach the Dreame cloud right now. Try again in a minute."
 
 
 async def test_a_failed_read_logs_in_again_once_the_wait_is_over():
@@ -112,7 +112,7 @@ async def test_a_failed_read_logs_in_again_once_the_wait_is_over():
     v = _vacuum(fake, clock)
     first = await v.status()
     assert not first["success"]
-    assert first["say"] == "I can't reach the Dreame cloud right now."
+    assert first["say"] == "I can't reach the Dreame cloud right now. Try again in a minute."
     clock.now += 61
     assert (await v.status())["success"]
     assert fake.logins == 2

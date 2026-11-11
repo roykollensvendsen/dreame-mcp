@@ -8,7 +8,8 @@ other clients that read a one-line answer aloud.
 
 Every tool answers ``{"success", "say", "state", "battery"}``. ``say`` is one
 or two sentences to read aloud as they are. When the cloud cannot be reached,
-``success`` is false and ``say`` says so, and that nothing was sent.
+``success`` is false and ``say`` says so, that nothing was sent, and what to
+do next: every answer that is not a success ends with something to do.
 
 Run it:
 
@@ -97,6 +98,8 @@ CHARGING, CHARGED = 1, 3
 
 NOTHING_SENT = " The vacuum wasn't told anything."
 UNREACHABLE = "I can't reach the Dreame cloud right now."
+TRY_AGAIN = "Try again in a minute."
+RESTART = "then ask me to restart the vacuum plugin."
 SIMULATED = "SIMULATED: this is a pretend vacuum, not the real one. Say so when you report on it. "
 
 
@@ -132,13 +135,13 @@ def _pick_rooms(asked: list[str], room_list: list[dict[str, Any]]) -> tuple[list
     """The map's rooms the user named, each once and in their order, or the spoken reason there are none."""
     existing = _listed([room["name"] for room in room_list])
     if not asked:
-        return [], f"Which rooms? The map has {existing}."
+        return [], f"Which rooms? Say one or more of {existing}."
     known = {_room_key(room["name"]): room for room in room_list}
     unknown = [name.strip() for name in asked if _room_key(name) not in known]
     # RULE: an unknown room is refused
     if unknown:
         these = "There is no room called " + _listed([f"'{u}'" for u in unknown])
-        return [], f"{these}. The map has {existing}."
+        return [], f"{these}. Choose from {existing}."
     chosen: list[dict[str, Any]] = []
     for name in asked:
         room = known[_room_key(name)]
@@ -148,11 +151,16 @@ def _pick_rooms(asked: list[str], room_list: list[dict[str, Any]]) -> tuple[list
 
 
 class Unavailable(Exception):
-    """The vacuum cannot be reached; ``say`` is the spoken reason."""
+    """The vacuum cannot be reached: what is wrong and what the owner can do next, both spoken."""
 
-    def __init__(self, say: str):
-        super().__init__(say)
-        self.say = say
+    def __init__(self, wrong: str, then: str):
+        super().__init__(f"{wrong} {then}")
+        self.wrong = wrong
+        self.then = then
+
+    @property
+    def say(self) -> str:
+        return f"{self.wrong} {self.then}"
 
 
 @dataclass(frozen=True)
@@ -212,14 +220,20 @@ class Reading:
         return what
 
 
-def _login_problem(cloud_error: str | None) -> str:
-    """A spoken reason for a failed login, never quoting the account."""
+def _login_problem(cloud_error: str | None) -> tuple[str, str]:
+    """A spoken reason for a failed login and what to do about it, never quoting the account."""
     text = (cloud_error or "").lower()
     if "70016" in text or "credentials" in text:
-        return "The Dreame cloud turned down the login. The password on the computer needs checking."
+        return (
+            "The Dreame cloud turned down the login.",
+            f"Check the password in the vacuum's login files on the computer, {RESTART}",
+        )
     if "2fa" in text or "verification" in text or "captcha" in text:
-        return "The Dreame cloud wants an extra check before it lets me in. Open the DreameHome app."
-    return UNREACHABLE
+        return (
+            "The Dreame cloud wants an extra check before it lets me in.",
+            "Open the DreameHome app, then ask again in a minute.",
+        )
+    return UNREACHABLE, TRY_AGAIN
 
 
 class Link:
@@ -269,22 +283,25 @@ class Link:
         """The logged-in client, or Unavailable with the spoken reason."""
         client = self.client
         if client is None:
-            raise Unavailable("The vacuum isn't set up on the computer yet: its Dreame login is missing.")
+            raise Unavailable(
+                "The vacuum isn't set up on the computer yet: its Dreame login is missing.",
+                f"Put the DreameHome login in the files user and password in .config/dreame, {RESTART}",
+            )
         if self._task is None:
             waited = self._clock() - (self._last_try or float("-inf"))
             # RULE: a failed login waits before trying again
             if waited < self._retry_after and self._last_try is not None:
-                raise Unavailable(_login_problem(client.cloud_error))
+                raise Unavailable(*_login_problem(client.cloud_error))
             self._begin()
         assert self._task is not None
         try:
             # RULE: every tool answers within the voices time
             ok = await asyncio.wait_for(asyncio.shield(self._task), timeout=max(0.0, deadline - self._clock()))
         except TimeoutError:
-            raise Unavailable("I'm still logging in to the Dreame cloud. Ask again in a moment.") from None
+            raise Unavailable("I'm still logging in to the Dreame cloud.", "Ask again in a moment.") from None
         if not ok or not client.connected:
             self._task = None  # a later call may try again, after the wait
-            raise Unavailable(_login_problem(client.cloud_error))
+            raise Unavailable(*_login_problem(client.cloud_error))
         return client
 
     def close(self) -> None:
@@ -337,7 +354,7 @@ class Vacuum:
             # RULE: a slow cloud still answers within the budget
             return await asyncio.wait_for(call, timeout=max(0.0, deadline - self._clock()))
         except TimeoutError:
-            raise Unavailable("The Dreame cloud is taking too long to answer.") from None
+            raise Unavailable("The Dreame cloud is taking too long to answer.", "Try again in a moment.") from None
 
     async def _read(self, deadline: float) -> Reading:
         client = await self.link.ready(deadline)
@@ -345,7 +362,7 @@ class Vacuum:
         if status.error or not status.raw:
             logger.warning("status read failed: %s", status.error)
             self.link.mark_stale()
-            raise Unavailable(UNREACHABLE)
+            raise Unavailable(UNREACHABLE, TRY_AGAIN)
         return Reading.of(status)
 
     async def _send(self, cmd: str, deadline: float) -> None:
@@ -353,7 +370,7 @@ class Vacuum:
         result = await self._within(deadline, client.control(cmd))
         if not result.get("success"):
             logger.warning("%s not accepted: %s", cmd, result.get("error"))
-            raise Unavailable("The Dreame cloud didn't take the command. Try again in a moment.")
+            raise Unavailable("The Dreame cloud didn't take the command.", "Try again in a moment.")
 
     async def _after(self, deadline: float) -> Reading | None:
         """The state a moment after a command, or None when it cannot be read in time."""
@@ -371,7 +388,8 @@ class Vacuum:
             return await act(deadline)
         except Unavailable as e:
             # RULE: a command that was not sent says so
-            return self._answer(False, e.say + (NOTHING_SENT if sent else ""))
+            # RULE: every failure says what to do next
+            return self._answer(False, e.wrong + (NOTHING_SENT if sent else "") + " " + e.then)
 
     # -- tools ---------------------------------------------------------
 
@@ -406,7 +424,11 @@ class Vacuum:
         # RULE: a confirm needs the open questions token
         # RULE: a question expires
         if question is None or not secrets.compare_digest(question[0], token) or self._clock() > question[1]:
-            return self._answer(False, "There is no open question with that token, so I didn't start it.")
+            return self._answer(
+                False,
+                "There is no open question with that token, so I didn't start it. "
+                "Ask for a full clean again if you still want one.",
+            )
         _, expires, tried = question
 
         async def act(deadline: float) -> dict[str, Any]:
@@ -467,10 +489,12 @@ class Vacuum:
         try:
             m = await self._within(deadline, client.get_map())
         except Unavailable:
-            raise Unavailable("The map is taking too long to come from the Dreame cloud.") from None
+            raise Unavailable(
+                "The map is taking too long to come from the Dreame cloud.", "Try again in a moment."
+            ) from None
         if not m.get("success") or not isinstance(m.get("map_data"), dict):
             logger.warning("map fetch failed: %s", m.get("error"))
-            raise Unavailable("I can't get the vacuum's map right now.")
+            raise Unavailable("I can't get the vacuum's map right now.", TRY_AGAIN)
         return m
 
     async def where(self) -> dict[str, Any]:
@@ -479,7 +503,7 @@ class Vacuum:
             try:
                 m = await self._map(deadline)
             except Unavailable as e:
-                return self._answer(False, f"{e.say} The vacuum is {r.words()}.", r)
+                return self._answer(False, f"{e.wrong} The vacuum is {r.words()}. " + e.then, r)
             md = m["map_data"]
             rooms = md.get("room_list") or []
             room = md.get("robot_room")
@@ -532,7 +556,13 @@ class Vacuum:
             m = await self._map(deadline)
             room_list = m["map_data"].get("room_list") or []
             if not room_list:
-                return self._answer(False, "Its map has no rooms, so I can't clean by room.", r, rooms=[])
+                return self._answer(
+                    False,
+                    "Its map has no rooms, so I can't clean by room. "
+                    "Use the DreameHome app to split the map into rooms, or ask for a full clean.",
+                    r,
+                    rooms=[],
+                )
             chosen, refusal = _pick_rooms(asked, room_list)
             if refusal:
                 return self._answer(False, refusal, r, rooms=[])
@@ -541,7 +571,7 @@ class Vacuum:
             result = await self._within(deadline, client.clean_rooms([int(room["id"]) for room in chosen]))
             if not result.get("success"):
                 logger.warning("room clean not accepted: %s", result.get("error"))
-                raise Unavailable("The Dreame cloud didn't take the command. Try again in a moment.")
+                raise Unavailable("The Dreame cloud didn't take the command.", "Try again in a moment.")
             return self._set_off(await self._after(deadline), names)
 
         return await self._guarded(act, sent=True)
