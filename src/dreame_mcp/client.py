@@ -971,28 +971,24 @@ class DreameHomeClient:
         """
         if _map_decoder_cls is None:
             return None
-        slot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
-        res = self._safe_call("send", "get_properties", [{"did": slot, "siid": 6, "piid": 8}])
-        value = res[0].get("value") if isinstance(res, list) and res else None
-        try:
-            obj = json.loads(value).get("object_name") if isinstance(value, str) else None
-        except ValueError:
-            obj = None
+        obj = self._saved_map_list_name()
         if not obj:
             return None
         raw = self._fetch_map_bytes_from_cloud_url(obj)
         if not raw:
             return None
-        data = json.loads(_map_raw_bytes_to_str(raw))
-        current = data.get("curr_id")
-        chosen = None
-        for entry in data.get("mapstr") or []:
-            decoded = _map_decoder_cls.decode_saved_map(entry.get("map", ""), 1, int(entry.get("angle") or 0), None)
-            if decoded is None:
-                continue
-            if chosen is None or getattr(decoded, "map_id", None) == current:
-                chosen = decoded
+        chosen = _current_saved_map(json.loads(_map_raw_bytes_to_str(raw)))
         return (chosen, obj) if chosen is not None else None
+
+    def _saved_map_list_name(self) -> str | None:
+        """The object name of the saved-map list file, from property 6.8, or None."""
+        slot = _miot_did_slots(1, str(self._did) if self._did else None)[0]
+        res = self._safe_call("send", "get_properties", [{"did": slot, "siid": 6, "piid": 8}])
+        value = res[0].get("value") if isinstance(res, list) and res else None
+        try:
+            return json.loads(value).get("object_name") if isinstance(value, str) else None
+        except ValueError:
+            return None
 
     def _saved_map_result(self) -> dict | None:
         """The saved map as a get_map answer with "source": "saved", or None."""
@@ -1195,6 +1191,20 @@ class DreameHomeClient:
                 saved_result["live_error"] = result.get("render_error")
                 return saved_result
         return None
+
+
+def _current_saved_map(data: dict) -> Any:
+    """The saved map the robot uses now (curr_id), else the first that decodes; None when none does."""
+    assert _map_decoder_cls is not None
+    current = data.get("curr_id")
+    chosen = None
+    for entry in data.get("mapstr") or []:
+        decoded = _map_decoder_cls.decode_saved_map(entry.get("map", ""), 1, int(entry.get("angle") or 0), None)
+        if decoded is None:
+            continue
+        if chosen is None or getattr(decoded, "map_id", None) == current:
+            chosen = decoded
+    return chosen
 
 
 def _object_name_property(endpoint: Any) -> str | None:
