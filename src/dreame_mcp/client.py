@@ -893,28 +893,9 @@ class DreameHomeClient:
 
         for endpoint in candidates:
             try:
-                from custom_components.dreame_vacuum.dreame.const import (  # type: ignore[import-not-found]
-                    MAP_PARAMETER_VALUE,
-                )
-                from custom_components.dreame_vacuum.dreame.types import (  # type: ignore[import-not-found]
-                    DIID,
-                    DreameVacuumProperty,
-                )
-
-                r = endpoint.get_properties(DIID(DreameVacuumProperty.OBJECT_NAME))
-                if r and len(r) > 0:
-                    first = r[0]
-                    val = first.get(MAP_PARAMETER_VALUE) or first.get("value")
-                    if val is not None:
-                        if isinstance(val, (list, tuple)) and val:
-                            return str(val[0])
-                        if isinstance(val, str):
-                            s = val.strip()
-                            if s.startswith("["):
-                                j = json.loads(s)
-                                if isinstance(j, (list, tuple)) and j:
-                                    return str(j[0])
-                            return s
+                name = _object_name_property(endpoint)
+                if name is not None:
+                    return name
             except Exception as e:
                 logger.debug("get_properties(OBJECT_NAME) via %s: %s", type(endpoint).__name__, e)
 
@@ -1214,6 +1195,40 @@ class DreameHomeClient:
                 saved_result["live_error"] = result.get("render_error")
                 return saved_result
         return None
+
+
+def _object_name_property(endpoint: Any) -> str | None:
+    """The map's object name from the endpoint's OBJECT_NAME property (6.3), or None."""
+    from custom_components.dreame_vacuum.dreame.const import (  # type: ignore[import-not-found]
+        MAP_PARAMETER_VALUE,
+    )
+    from custom_components.dreame_vacuum.dreame.types import (  # type: ignore[import-not-found]
+        DIID,
+        DreameVacuumProperty,
+    )
+
+    r = endpoint.get_properties(DIID(DreameVacuumProperty.OBJECT_NAME))
+    if not r or len(r) == 0:
+        return None
+    first = r[0]
+    val = first.get(MAP_PARAMETER_VALUE) or first.get("value")
+    if val is None:
+        return None
+    return _object_name_value(val)
+
+
+def _object_name_value(val: Any) -> str | None:
+    """The object name in a property value: a list's first item, a JSON list's first item, or the text."""
+    if isinstance(val, (list, tuple)) and val:
+        return str(val[0])
+    if isinstance(val, str):
+        s = val.strip()
+        if s.startswith("["):
+            j = json.loads(s)
+            if isinstance(j, (list, tuple)) and j:
+                return str(j[0])
+        return s
+    return None
 
 
 def _interim_url(proto: Any, object_name: str) -> Any:
