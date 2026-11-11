@@ -92,3 +92,15 @@ name = "a tool that changes nothing is marked read only"
 file = "src/dreame_mcp/voice.py"
 find = 'read_only = \{"readOnlyHint": True'
 replace = 'read_only = {"readOnlyHint": False, "openWorldHint": True}'
+
+[[rule]]
+name = "a control request from another site is refused"
+file = "src/dreame_mcp/server.py"
+find = 'if origin is not None and not _is_app_origin\(origin\):'
+replace = 'if False:'
+
+[[rule]]
+name = "a browser request without an origin is refused"
+file = "src/dreame_mcp/server.py"
+find = 'if origin is None and from_browser:'
+replace = 'if False:'
