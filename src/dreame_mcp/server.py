@@ -545,24 +545,7 @@ async def api_connection_test(payload: dict):
     unknown = set(payload) - allowed
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown keys: {sorted(unknown)}")
-    file_env = _file_env()
-
-    def pick(form_key: str, env_key: str, default: str = "") -> str:
-        raw = payload.get(form_key)
-        if raw is not None and str(raw).strip():
-            return str(raw).strip()
-        return file_env.get(env_key, default)
-
-    probe = DreameHomeClient(
-        username=pick("user", "DREAME_USER") or None,
-        password=pick("password", "DREAME_PASSWORD") or None,
-        country=pick("country", "DREAME_COUNTRY", "eu") or "eu",
-        ip=pick("ip", "DREAME_IP") or None,
-        token=file_env.get("DREAME_TOKEN") or None,
-        did=file_env.get("DREAME_DID") or None,
-        auth_key=file_env.get("DREAME_AUTH_KEY") or None,
-        ref_path=Path(file_env["DREAME_REF_PATH"]) if file_env.get("DREAME_REF_PATH") else None,
-    )
+    probe = _probe_client(payload, _file_env())
     try:
         ok = await probe.connect()
     finally:
@@ -572,12 +555,39 @@ async def api_connection_test(payload: dict):
             pass
     if ok:
         return {"success": True, "mode": _mode(probe), "did": probe._did}
+    return {"success": False, "error": _probe_failure(probe), "did": probe._did}
+
+
+def _pick(payload: dict, file_env: dict[str, str], form_key: str, env_key: str, default: str = "") -> str:
+    """The form's value when it has one, else the .env file's, else the default."""
+    raw = payload.get(form_key)
+    if raw is not None and str(raw).strip():
+        return str(raw).strip()
+    return file_env.get(env_key, default)
+
+
+def _probe_client(payload: dict, file_env: dict[str, str]) -> DreameHomeClient:
+    """A throwaway client from the form over the .env file's values."""
+    return DreameHomeClient(
+        username=_pick(payload, file_env, "user", "DREAME_USER") or None,
+        password=_pick(payload, file_env, "password", "DREAME_PASSWORD") or None,
+        country=_pick(payload, file_env, "country", "DREAME_COUNTRY", "eu") or "eu",
+        ip=_pick(payload, file_env, "ip", "DREAME_IP") or None,
+        token=file_env.get("DREAME_TOKEN") or None,
+        did=file_env.get("DREAME_DID") or None,
+        auth_key=file_env.get("DREAME_AUTH_KEY") or None,
+        ref_path=Path(file_env["DREAME_REF_PATH"]) if file_env.get("DREAME_REF_PATH") else None,
+    )
+
+
+def _probe_failure(probe: DreameHomeClient) -> str:
+    """Why a test connection failed: the local link, the cloud, or both."""
     reasons = []
     if probe._ip:
         reasons.append(f"no miio answer at {probe._ip}:54321")
     if probe.cloud_error:
         reasons.append(str(probe.cloud_error))
-    return {"success": False, "error": " | ".join(reasons) or "connect failed", "did": probe._did}
+    return " | ".join(reasons) or "connect failed"
 
 
 @app.post("/api/v1/connection")
