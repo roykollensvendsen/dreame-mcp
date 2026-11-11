@@ -942,41 +942,14 @@ class DreameHomeClient:
     def _fetch_map_bytes_from_cloud_url(self, object_name: str) -> bytes | None:
         """Tasshack order: interim URL then get_file. Try cloud, then protocol."""
         for proto in self._dreame_file_endpoints():
-            u: Any = None
-            try:
-                if hasattr(proto, "get_interim_file_url"):
-                    u = proto.get_interim_file_url(object_name)  # type: ignore[union-attr]
-            except Exception as e:
-                logger.debug("get_interim_file_url: %s", e)
-            if u is not None and not (isinstance(u, str) and (u or "").strip().lower().startswith("http")):
-                if isinstance(u, dict):
-                    u2 = (u or {}).get("url") or (u or {}).get("fileUrl")
-                    u = u2 if isinstance(u2, str) else None
-                else:
-                    u = None
+            u = _interim_url(proto, object_name)
             if not u and hasattr(proto, "get_file_url"):
-                o = object_name if str(object_name).startswith("/") else f"/{object_name}"
-                try:
-                    d = proto.get_file_url(o)
-                except Exception as e:
-                    logger.debug("get_file_url: %s", e)
-                    d = None
-                if isinstance(d, dict):
-                    u = d.get("url") or d.get("fileUrl")
-                elif isinstance(d, str) and d.strip().lower().startswith("http"):
-                    u = d
+                u = _file_url(proto, object_name)
             if not u or not str(u).strip().lower().startswith("http"):
                 continue
-            try:
-                if not hasattr(proto, "get_file"):
-                    continue
-                raw = proto.get_file(str(u).strip())  # type: ignore[union-attr]
-            except Exception as e:
-                logger.debug("get_file(signed URL) on endpoint failed: %s", e)
-                continue
-            if not raw or _map_bytes_looks_like_error_json(raw):
-                continue
-            return raw
+            raw = _signed_file(proto, str(u).strip())
+            if raw:
+                return raw
         return None
 
     def _request_map_object_sync(self) -> str | None:
@@ -1241,6 +1214,52 @@ class DreameHomeClient:
                 saved_result["live_error"] = result.get("render_error")
                 return saved_result
         return None
+
+
+def _interim_url(proto: Any, object_name: str) -> Any:
+    """The endpoint's interim address for the map file: a URL, the url field of its answer, or None."""
+    u: Any = None
+    try:
+        if hasattr(proto, "get_interim_file_url"):
+            u = proto.get_interim_file_url(object_name)
+    except Exception as e:
+        logger.debug("get_interim_file_url: %s", e)
+    if u is not None and not (isinstance(u, str) and (u or "").strip().lower().startswith("http")):
+        if isinstance(u, dict):
+            u2 = (u or {}).get("url") or (u or {}).get("fileUrl")
+            u = u2 if isinstance(u2, str) else None
+        else:
+            u = None
+    return u
+
+
+def _file_url(proto: Any, object_name: str) -> Any:
+    """The endpoint's get_file_url address for the map file, or None."""
+    o = object_name if str(object_name).startswith("/") else f"/{object_name}"
+    try:
+        d = proto.get_file_url(o)
+    except Exception as e:
+        logger.debug("get_file_url: %s", e)
+        return None
+    if isinstance(d, dict):
+        return d.get("url") or d.get("fileUrl")
+    if isinstance(d, str) and d.strip().lower().startswith("http"):
+        return d
+    return None
+
+
+def _signed_file(proto: Any, url: str) -> bytes | None:
+    """The map file from a signed address, or None when it fails or is an error answer."""
+    if not hasattr(proto, "get_file"):
+        return None
+    try:
+        raw = proto.get_file(url)
+    except Exception as e:
+        logger.debug("get_file(signed URL) on endpoint failed: %s", e)
+        return None
+    if not raw or _map_bytes_looks_like_error_json(raw):
+        return None
+    return raw
 
 
 def _device_records(cloud: Any) -> list:
