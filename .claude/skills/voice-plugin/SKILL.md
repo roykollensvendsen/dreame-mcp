@@ -41,6 +41,10 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
 
 ## Lessons
 
+- Every answer that is not a success ends with what to do next (Roy's rule,
+  2026-11-11). `Unavailable(wrong, then)` keeps the two apart, so "The vacuum
+  wasn't told anything." goes between them; `tests/test_voice_next_step.py`
+  scans the source for every failure.
 - Answer within about 15 s; the Claude app cuts longer calls off.
   `CALL_BUDGET` is 14 s.
 - Do not retry a failed login quickly: the Xiaomi cloud then asks for a

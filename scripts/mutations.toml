@@ -60,7 +60,7 @@ replace = 'pass'
 [[rule]]
 name = "a command that was not sent says so"
 file = "src/dreame_mcp/voice.py"
-find = 'e\.say \+ \(NOTHING_SENT if sent else ""\)'
+find = 'e\.wrong \+ \(NOTHING_SENT if sent else ""\) \+ " " \+ e\.then'
 replace = 'return self._answer(False, e.say)'
 
 [[rule]]
@@ -92,6 +92,12 @@ name = "a tool that changes nothing is marked read only"
 file = "src/dreame_mcp/voice.py"
 find = 'read_only = \{"readOnlyHint": True'
 replace = 'read_only = {"readOnlyHint": False, "openWorldHint": True}'
+
+[[rule]]
+name = "every failure says what to do next"
+file = "src/dreame_mcp/voice.py"
+find = 'e\.wrong \+ \(NOTHING_SENT if sent else ""\) \+ " " \+ e\.then'
+replace = 'return self._answer(False, e.wrong + (NOTHING_SENT if sent else ""))'
 
 [[rule]]
 name = "a control request from another site is refused"

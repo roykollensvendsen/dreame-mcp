@@ -79,12 +79,19 @@ comes back at once. Every call then answers within about 14 seconds:
 
 - while the login is still running: "I'm still logging in to the Dreame cloud.
   Ask again in a moment."
-- when the cloud cannot be reached, or does not answer in time: "I can't reach
-  the Dreame cloud right now." For a command it adds "The vacuum wasn't told
-  anything.", and `success` is false.
-- when the password is wrong: "The Dreame cloud turned down the login. The
-  password on the computer needs checking."
-- when the cloud wants a 2FA or captcha check: "Open the DreameHome app."
+- when the cloud cannot be reached: "I can't reach the Dreame cloud right now.
+  Try again in a minute." For a command it adds "The vacuum wasn't told
+  anything." before the last sentence, and `success` is false.
+- when the password is wrong: "The Dreame cloud turned down the login. Check
+  the password in the vacuum's login files on the computer, then ask me to
+  restart the vacuum plugin."
+- when the cloud wants a 2FA or captcha check: "Open the DreameHome app, then
+  ask again in a minute."
+
+Every answer that is not a success says what is wrong and then what to do
+next, as its last sentence; a bare question is not a next step.
+`tests/test_voice_next_step.py` reads every such answer from the source and
+fails on one whose last sentence does not start with something to do.
 
 After a failed login, the server waits 60 seconds before it tries again,
 however often it is asked, because repeated logins make the Xiaomi cloud ask

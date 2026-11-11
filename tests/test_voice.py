@@ -206,7 +206,7 @@ async def test_a_token_is_spent_only_once_the_start_was_sent():
 
     sim.control = refuse_once
     first = await v.confirm(q["token"])
-    assert not first["success"] and first["say"].endswith("The vacuum wasn't told anything.")
+    assert not first["success"] and first["say"].endswith("The vacuum wasn't told anything. Try again in a moment.")
     second = await v.confirm(q["token"])
     assert second["say"].startswith("Started.")
     assert sim.sent == ["start_clean"]
@@ -245,13 +245,13 @@ async def test_a_question_expires():
 
 async def test_offline_status_says_cannot_reach():
     a = await _call(_vacuum(SimulatedVacuum(offline=True)), "vacuum_status")
-    assert a == {"success": False, "say": "I can't reach the Dreame cloud right now."}
+    assert a == {"success": False, "say": "I can't reach the Dreame cloud right now. Try again in a minute."}
 
 
 async def test_a_command_that_was_not_sent_says_so():
     a = await _call(_vacuum(SimulatedVacuum(offline=True)), "vacuum_clean_all")
     assert not a["success"]
-    assert a["say"].endswith("The vacuum wasn't told anything.")
+    assert "The vacuum wasn't told anything." in a["say"]
 
 
 async def test_not_set_up():
@@ -460,7 +460,8 @@ async def test_where_without_a_map_still_gives_the_state():
     assert not a["success"]
     assert (
         a["say"]
-        == "I can't get the vacuum's map right now. The vacuum is on the dock, fully charged, battery 90 percent."
+        == "I can't get the vacuum's map right now. The vacuum is on the dock, fully charged, battery 90 percent. "
+        "Try again in a minute."
     )
 
 
@@ -501,7 +502,7 @@ async def test_an_unknown_room_is_refused():
     sim = SimulatedVacuum()
     a = await _vacuum(sim).clean_rooms(["Kitchen", "Bathroom"])
     assert not a["success"]
-    assert a["say"] == "There is no room called 'Bathroom'. The map has Living room, Kitchen and Hallway."
+    assert a["say"] == "There is no room called 'Bathroom'. Choose from Living room, Kitchen and Hallway."
     assert sim.sent == []
 
 
@@ -509,7 +510,7 @@ async def test_no_rooms_given_asks_which():
     sim = SimulatedVacuum()
     a = await _vacuum(sim).clean_rooms([" "])
     assert not a["success"]
-    assert a["say"].startswith("Which rooms? The map has Living room")
+    assert a["say"].startswith("Which rooms? Say one or more of Living room")
     assert sim.sent == []
 
 
@@ -534,7 +535,7 @@ async def test_clean_rooms_on_a_map_without_rooms():
 async def test_a_room_clean_without_a_map_sends_nothing():
     a = await _vacuum(FakeClient()).clean_rooms(["Room 1"])
     assert not a["success"]
-    assert a["say"].endswith("The vacuum wasn't told anything.")
+    assert "The vacuum wasn't told anything." in a["say"]
 
 
 async def test_clean_rooms_refused_by_the_cloud():
@@ -548,4 +549,4 @@ async def test_clean_rooms_refused_by_the_cloud():
 async def test_clean_rooms_offline():
     a = await _vacuum(SimulatedVacuum(offline=True)).clean_rooms(["Kitchen"])
     assert not a["success"]
-    assert a["say"].endswith("The vacuum wasn't told anything.")
+    assert "The vacuum wasn't told anything." in a["say"]
