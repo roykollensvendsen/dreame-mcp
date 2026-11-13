@@ -45,6 +45,10 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
   2026-11-11). `Unavailable(wrong, then)` keeps the two apart, so "The vacuum
   wasn't told anything." goes between them; `tests/test_voice_next_step.py`
   scans the source for every failure.
+- Once a command is handed to the client, a failure may still have reached
+  the robot (its worker thread carries on after the wait). Raise
+  `Unavailable(..., maybe_sent=True)` from there, so the voice says it may
+  have gone and asks for a status check, never "wasn't told anything".
 - Answer within about 15 s; the Claude app cuts longer calls off.
   `CALL_BUDGET` is 14 s.
 - Do not retry a failed login quickly: the Xiaomi cloud then asks for a

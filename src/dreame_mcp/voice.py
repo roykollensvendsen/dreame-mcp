@@ -97,6 +97,7 @@ DOCKED = frozenset({6, 13, 22, 24, 34})
 CHARGING, CHARGED = 1, 3
 
 NOTHING_SENT = " The vacuum wasn't told anything."
+CHECK_FIRST = "Ask me for its status before you try again."
 UNREACHABLE = "I can't reach the Dreame cloud right now."
 TRY_AGAIN = "Try again in a minute."
 RESTART = "then ask me to restart the vacuum plugin."
@@ -155,10 +156,11 @@ def _pick_rooms(asked: list[str], room_list: list[dict[str, Any]]) -> tuple[list
 class Unavailable(Exception):
     """The vacuum cannot be reached: what is wrong and what the owner can do next, both spoken."""
 
-    def __init__(self, wrong: str, then: str):
+    def __init__(self, wrong: str, then: str, maybe_sent: bool = False):
         super().__init__(f"{wrong} {then}")
         self.wrong = wrong
         self.then = then
+        self.maybe_sent = maybe_sent  # the command was handed over: it may have reached the robot
 
     @property
     def say(self) -> str:
@@ -369,10 +371,27 @@ class Vacuum:
 
     async def _send(self, cmd: str, deadline: float) -> None:
         client = await self.link.ready(deadline)
-        result = await self._within(deadline, client.control(cmd))
+        await self._handed_over(cmd, deadline, client.control(cmd))
+
+    async def _handed_over(self, what: str, deadline: float, call: Awaitable[dict[str, Any]]) -> None:
+        """Wait for a command's answer. Once it is handed to the client it may reach the
+        robot even when no answer comes back, so a failure from here on never says it
+        wasn't sent (the client's worker thread carries on after the wait ends)."""
+        try:
+            result = await self._within(deadline, call)
+        except Unavailable:
+            raise Unavailable(
+                "The Dreame cloud took too long to answer, so the command may still reach the vacuum.",
+                CHECK_FIRST,
+                maybe_sent=True,
+            ) from None
         if not result.get("success"):
-            logger.warning("%s not accepted: %s", cmd, result.get("error"))
-            raise Unavailable("The Dreame cloud didn't take the command.", "Try again in a moment.")
+            logger.warning("%s not confirmed: %s", what, result.get("error"))
+            raise Unavailable(
+                "The Dreame cloud didn't confirm the command, so it may have reached the vacuum or not.",
+                CHECK_FIRST,
+                maybe_sent=True,
+            )
 
     async def _after(self, deadline: float) -> Reading | None:
         """The state a moment after a command, or None when it cannot be read in time."""
@@ -389,6 +408,8 @@ class Vacuum:
         try:
             return await act(deadline)
         except Unavailable as e:
+            # RULE: a command that may have gone says so
+            sent = sent and not e.maybe_sent
             # RULE: a command that was not sent says so
             # RULE: every failure says what to do next
             return self._answer(False, e.wrong + (NOTHING_SENT if sent else "") + " " + e.then)
@@ -570,10 +591,7 @@ class Vacuum:
                 return self._answer(False, refusal, r, rooms=[])
             names = [room["name"] for room in chosen]
             client = await self.link.ready(deadline)
-            result = await self._within(deadline, client.clean_rooms([int(room["id"]) for room in chosen]))
-            if not result.get("success"):
-                logger.warning("room clean not accepted: %s", result.get("error"))
-                raise Unavailable("The Dreame cloud didn't take the command.", "Try again in a moment.")
+            await self._handed_over("room clean", deadline, client.clean_rooms([int(room["id"]) for room in chosen]))
             return self._set_off(await self._after(deadline), names)
 
         return await self._guarded(act, sent=True)

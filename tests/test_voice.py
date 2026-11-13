@@ -206,7 +206,7 @@ async def test_a_token_is_spent_only_once_the_start_was_sent():
 
     sim.control = refuse_once
     first = await v.confirm(q["token"])
-    assert not first["success"] and first["say"].endswith("The vacuum wasn't told anything. Try again in a moment.")
+    assert not first["success"] and first["say"].endswith("Ask me for its status before you try again.")
     second = await v.confirm(q["token"])
     assert second["say"].startswith("Started.")
     assert sim.sent == ["start_clean"]
@@ -543,7 +543,7 @@ async def test_clean_rooms_refused_by_the_cloud():
     fake.map_answer = _map(room_list=[{"id": 3, "name": "Room 3"}], robot_room=None, docked=True)
     a = await _vacuum(fake).clean_rooms(["room 3"])
     assert not a["success"]
-    assert "didn't take the command" in a["say"]
+    assert "didn't confirm the command" in a["say"]
 
 
 async def test_clean_rooms_offline():
