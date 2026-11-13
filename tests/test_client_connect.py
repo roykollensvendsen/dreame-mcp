@@ -414,10 +414,22 @@ def test_the_local_timeout_is_left_alone_without_an_ip():
         (SimpleNamespace(captcha_img="img"), "captcha required"),
         (SimpleNamespace(last_code=70016), "70016 = wrong username/password"),
         (SimpleNamespace(_last_code="70002"), "does not exist (70002)"),
-        (SimpleNamespace(last_code="87001"), "Xiaomi error code 87001"),
+        (SimpleNamespace(last_code="87001"), "rate-limited (87001)"),
+        (SimpleNamespace(last_code=87001), "rate-limited (87001)"),
+        (SimpleNamespace(last_code="12345"), "Xiaomi error code 12345"),
         (SimpleNamespace(), "unknown Xiaomi auth error"),
     ],
-    ids=["no-cloud", "2fa", "captcha", "wrong-password", "no-account", "other-code", "no-code"],
+    ids=[
+        "no-cloud",
+        "2fa",
+        "captcha",
+        "wrong-password",
+        "no-account",
+        "rate-limited",
+        "rate-limited-int",
+        "other-code",
+        "no-code",
+    ],
 )
 def test_a_failed_login_is_explained(cloud, expected):
     assert expected in _classify_cloud_failure(cloud)
