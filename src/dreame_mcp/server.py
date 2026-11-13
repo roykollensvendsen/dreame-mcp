@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -111,6 +112,40 @@ def update_dotenv(values: dict[str, str], path: Path | None = None) -> Path:
     return target
 
 
+#: Seconds a login from the web app waits after a failed one, as the voice server does
+#: (voice.RETRY_AFTER): logging in again and again makes the cloud ask for a captcha.
+LOGIN_GAP = 60.0
+_now = time.monotonic
+
+
+def _login_failed() -> None:
+    _state["last_failed_login"] = _now()
+
+
+def _login_wait() -> int:
+    """Whole seconds until a login may be tried again; 0 when it may be now."""
+    last = _state.get("last_failed_login")
+    if last is None:
+        return 0
+    left = LOGIN_GAP - (_now() - last)
+    return max(0, int(left + 0.999))
+
+
+def _too_soon() -> JSONResponse | None:
+    """The answer to a login asked for too soon after a failed one, or None."""
+    wait = _login_wait()
+    if not wait:
+        return None
+    return JSONResponse(
+        status_code=429,
+        content={
+            "success": False,
+            "error": f"The last login failed; wait {wait} s before trying again, or the cloud may ask for a captcha",
+            "retry_after": wait,
+        },
+    )
+
+
 async def _establish(client):
     """Connect one client and record the outcome in _state. Shared by lifespan
     startup and the Settings reconnect endpoint."""
@@ -130,6 +165,7 @@ async def _establish(client):
         if client.auth_key:
             logger.debug("Auth key available (DREAME_AUTH_KEY set)")
     else:
+        _login_failed()
         _state["client"] = None
         _state["startup_error"] = " | ".join(offline_reasons())
         logger.warning("Dreame Protocol connect failed — robot offline (%s)", _state["startup_error"])
@@ -574,7 +610,8 @@ async def api_connection_test(payload: dict):
 
     Merges the body over the .env file values in memory only, connects a
     throwaway client, then disconnects. Nothing is written, _state untouched.
-    NOTE: a test with a wrong cloud password still costs one login attempt.
+    NOTE: a test with a wrong cloud password still costs one login attempt, so
+    after a failed login the next test or save waits LOGIN_GAP seconds (429).
     """
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object expected")
@@ -582,6 +619,9 @@ async def api_connection_test(payload: dict):
     unknown = set(payload) - allowed
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown keys: {sorted(unknown)}")
+    # RULE: a login right after a failed one waits
+    if (refused := _too_soon()) is not None:
+        return refused
     probe = _probe_client(payload, _file_env())
     try:
         ok = await probe.connect()
@@ -592,6 +632,7 @@ async def api_connection_test(payload: dict):
             pass
     if ok:
         return {"success": True, "mode": _mode(probe), "did": probe._did}
+    _login_failed()
     return {"success": False, "error": _probe_failure(probe), "did": probe._did}
 
 
@@ -627,6 +668,21 @@ def _probe_failure(probe: DreameHomeClient) -> str:
     return " | ".join(reasons) or "connect failed"
 
 
+def _settings_from(payload: dict) -> dict[str, str]:
+    """The .env settings a save form changes: only keys it has, and an empty account
+    or password means leave it as it is."""
+    env_map = {"ip": "DREAME_IP", "user": "DREAME_USER", "password": "DREAME_PASSWORD", "country": "DREAME_COUNTRY"}
+    updates: dict[str, str] = {}
+    for key, env_key in env_map.items():
+        if payload.get(key) is None:
+            continue
+        value = str(payload[key]).strip()
+        if key in ("user", "password") and not value:
+            continue  # empty account or password = leave unchanged
+        updates[env_key] = value
+    return updates
+
+
 @app.post("/api/v1/connection")
 async def api_connection_update(payload: dict):
     """Update connection settings (DREAME_IP/USER/PASSWORD/COUNTRY) and reconnect.
@@ -641,17 +697,11 @@ async def api_connection_update(payload: dict):
     unknown = set(payload) - allowed
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown keys: {sorted(unknown)}")
-    env_map = {"ip": "DREAME_IP", "user": "DREAME_USER", "password": "DREAME_PASSWORD", "country": "DREAME_COUNTRY"}
-    updates: dict[str, str] = {}
-    for key in allowed:
-        if key not in payload or payload[key] is None:
-            continue
-        value = str(payload[key]).strip()
-        if key in ("user", "password") and not value:
-            continue  # empty account or password = leave unchanged
-        updates[env_map[key]] = value
+    updates = _settings_from(payload)
     if not updates:
         return {"updated": [], "connection": _connection_info()}
+    if (refused := _too_soon()) is not None:
+        return refused
     try:
         saved = update_dotenv(updates)
     except OSError as e:

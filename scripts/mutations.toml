@@ -122,3 +122,9 @@ name = "a command that may have gone says so"
 file = "src/dreame_mcp/voice.py"
 find = 'sent = sent and not e\.maybe_sent'
 replace = 'pass'
+
+[[rule]]
+name = "a login right after a failed one waits"
+file = "src/dreame_mcp/server.py"
+find = 'if \(refused := _too_soon\(\)\) is not None:'
+replace = 'if False:'

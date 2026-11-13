@@ -721,3 +721,70 @@ def test_llm_chat_answers_the_error_when_ollama_fails(web, ollama):
     ollama.handler = lambda req: httpx.Response(500)
     body = web.post("/api/llm/chat", json={"prompt": "hi", "model": "m"}).json()
     assert "500" in body["error"]
+
+
+# -- connection settings: a failed login waits before the next -------------------------
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(env, monkeypatch):
+    c = _Clock()
+    monkeypatch.setattr(env.server, "_now", c, raising=False)
+    return c
+
+
+def test_a_login_right_after_a_failed_one_waits(web, probe, clock):
+    # The real limit: the cloud counts failed logins and then asks for a captcha
+    # (87001). One failed login, then the next try must wait, not log in again.
+    probe.connect_ok = False
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    clock.now += 5
+    r = web.post("/api/v1/connection/test", json={"user": "u"})
+    assert r.status_code == 429
+    assert r.json()["success"] is False
+    assert r.json()["retry_after"] == 55
+    assert "wait 55 s" in r.json()["error"]
+    assert len(probe.made) == 1
+
+
+def test_a_test_after_the_wait_logs_in_again(web, probe, clock):
+    probe.connect_ok = False
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    clock.now += 61
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    assert len(probe.made) == 2
+
+
+def test_a_good_login_does_not_make_the_next_wait(web, probe, clock):
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    r = web.post("/api/v1/connection/test", json={"user": "u"})
+    assert r.json()["success"] is True
+    assert len(probe.made) == 2
+
+
+def test_a_save_right_after_a_failed_login_waits_and_changes_nothing(web, env, probe, reconnect, clock):
+    probe.connect_ok = False
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    r = web.post("/api/v1/connection", json={"user": "new@example.com", "password": "pw"})
+    assert r.status_code == 429
+    assert r.json()["retry_after"] == 60
+    assert not env.env_file.exists()
+    assert reconnect.calls == []
+
+
+def test_a_failed_reconnect_after_a_save_makes_the_next_login_wait(web, env, probe, monkeypatch, clock):
+    from server_fakes import FakeVacuum
+
+    monkeypatch.setattr(env.server, "client_from_env", lambda _dir=None: FakeVacuum(connect_ok=False))
+    web.post("/api/v1/connection", json={"user": "new@example.com", "password": "pw"})
+    r = web.post("/api/v1/connection/test", json={"user": "u"})
+    assert r.status_code == 429
+    assert probe.made == []
