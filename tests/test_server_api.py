@@ -732,9 +732,9 @@ def test_llm_chat_answers_the_error_when_ollama_fails(web, ollama):
 
 class _Clock:
     def __init__(self) -> None:
-        # Wall time, a second ahead: the shared wait file's mtime is real time, and a
-        # file written "after now" would count as no wait.
-        self.now = time.time() + 1
+        # Wall time, a second behind: the shared wait file is stamped with this clock's
+        # own time (never ahead of the real one), and is not "from the future" either.
+        self.now = time.time() - 1
 
     def __call__(self) -> float:
         return self.now
@@ -796,6 +796,7 @@ def test_a_failed_login_from_the_voice_makes_the_page_wait(web, probe, clock):
     # The voice server is another process; it leaves only the time and a reason code.
     _wait_file().parent.mkdir(parents=True)
     _wait_file().write_text(json.dumps({"at": clock.now - 10, "reason": "failed"}))
+    os.utime(_wait_file(), (clock.now - 10, clock.now - 10))  # stamped as the voice stamps it
     r = web.post("/api/v1/connection/test", json={"user": "u"})
     assert r.status_code == 429
     assert probe.made == []

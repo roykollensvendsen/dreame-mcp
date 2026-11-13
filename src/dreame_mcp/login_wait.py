@@ -82,9 +82,12 @@ class LoginWait:
         fd = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
-        # Stamp it with the time it records: a file system may round its own stamp a
-        # little behind the clock, and the longest wait is counted from the stamp.
-        os.utime(new, (at, at))
+        # Stamp it with the time it records, but never ahead of the real clock: a file
+        # system may round its own stamp a little behind, and the longest wait is counted
+        # from the stamp; a writer whose clock runs ahead (the voice's, after the wall
+        # clock was stepped back) must not leave a file the other side reads as future.
+        stamp = min(at, time.time())
+        os.utime(new, (stamp, stamp))
         os.replace(new, path)  # whole or not at all: a reader never sees half a file
 
     def left(self) -> float:
