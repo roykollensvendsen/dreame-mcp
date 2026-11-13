@@ -41,6 +41,7 @@ from typing import Any, Protocol, TypeVar
 from fastmcp import FastMCP
 
 from .client import DreameStatus, client_from_env
+from .login_wait import LoginWait
 
 logger = logging.getLogger("dreame-mcp.voice")
 
@@ -249,7 +250,9 @@ class Link:
     """Keeps the client logged in: in the background at start, again when it has dropped.
 
     Retries a failed login only after ``retry_after`` seconds, so a string of
-    voice requests cannot hammer the cloud into asking for a captcha.
+    voice requests cannot hammer the cloud into asking for a captcha. A failed cloud
+    login also waits in ``wait``, shared with the web page through a small file
+    (login_wait), so neither process logs in again right after the other failed.
     """
 
     def __init__(
@@ -258,10 +261,15 @@ class Link:
         *,
         retry_after: float = RETRY_AFTER,
         clock: Callable[[], float] = time.monotonic,
+        wait: LoginWait | None = None,
     ):
         self.client = client
         self._retry_after = retry_after
         self._clock = clock
+        # Wall time as this Link's clock sees it pass, so a test's clock moves the shared
+        # wait too; with the real monotonic clock it is time.time().
+        started, wall = clock(), time.time()
+        self._wait = wait or LoginWait(clock=lambda: wall + (self._clock() - started))
         self._task: asyncio.Task[bool] | None = None
         self._last_try: float | None = None
         self._suspect = False  # a call failed while logged in: the session may have run out
@@ -277,13 +285,17 @@ class Link:
         self._last_try = self._clock()
         self._task = asyncio.ensure_future(self._connect(self.client))
 
-    @staticmethod
-    async def _connect(client: VacuumClient) -> bool:
+    async def _connect(self, client: VacuumClient) -> bool:
         try:
-            return await client.connect()
+            ok = await client.connect()
         except Exception:
             logger.exception("connect failed")
             return False
+        if client.cloud_error:
+            self._wait.failed()
+        elif ok and client.connected:
+            self._wait.succeeded()
+        return ok
 
     def mark_stale(self) -> None:
         """A call failed while logged in: log in again on a later call, once the wait is over.
@@ -318,6 +330,14 @@ class Link:
             # RULE: a failed login waits before trying again
             if waited < self._retry_after and self._last_try is not None:
                 raise Unavailable(*_login_problem(client.cloud_error))
+            # RULE: a failed login in either process makes the other wait
+            if self._wait.left() > 0:
+                if client.cloud_error:
+                    raise Unavailable(*_login_problem(client.cloud_error))
+                raise Unavailable(
+                    "A Dreame login failed a moment ago, so I'm waiting before I try again.",
+                    "Ask again in a minute.",
+                )
             self._begin()
         assert self._task is not None
         try:

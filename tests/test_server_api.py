@@ -6,8 +6,12 @@ Ollama calls go to an httpx MockTransport. No robot, cloud, LLM or port.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
+import json
+import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -728,7 +732,9 @@ def test_llm_chat_answers_the_error_when_ollama_fails(web, ollama):
 
 class _Clock:
     def __init__(self) -> None:
-        self.now = 1000.0
+        # Wall time, a second ahead: the shared wait file's mtime is real time, and a
+        # file written "after now" would count as no wait.
+        self.now = time.time() + 1
 
     def __call__(self) -> float:
         return self.now
@@ -741,10 +747,15 @@ def clock(env, monkeypatch):
     return c
 
 
+def _wait_file():
+    return Path(os.environ["XDG_STATE_HOME"]) / "dreame-mcp" / "last-failed-login"
+
+
 def test_a_login_right_after_a_failed_one_waits(web, probe, clock):
     # The real limit: the cloud counts failed logins and then asks for a captcha
     # (87001). One failed login, then the next try must wait, not log in again.
     probe.connect_ok = False
+    probe.cloud_error = "cloud login failed: Xiaomi rejected the credentials (70016)"
     web.post("/api/v1/connection/test", json={"user": "u"})
     clock.now += 5
     r = web.post("/api/v1/connection/test", json={"user": "u"})
@@ -757,6 +768,7 @@ def test_a_login_right_after_a_failed_one_waits(web, probe, clock):
 
 def test_a_test_after_the_wait_logs_in_again(web, probe, clock):
     probe.connect_ok = False
+    probe.cloud_error = "cloud login failed"
     web.post("/api/v1/connection/test", json={"user": "u"})
     clock.now += 61
     web.post("/api/v1/connection/test", json={"user": "u"})
@@ -770,20 +782,90 @@ def test_a_good_login_does_not_make_the_next_wait(web, probe, clock):
     assert len(probe.made) == 2
 
 
-def test_a_save_right_after_a_failed_login_waits_and_changes_nothing(web, env, probe, reconnect, clock):
+def test_a_failure_without_a_cloud_login_does_not_wait(web, probe, clock):
+    # Only the robot's own address was tried and it did not answer: no cloud login
+    # was made, so there is nothing for the cloud to count.
     probe.connect_ok = False
+    web.post("/api/v1/connection/test", json={"ip": "10.0.0.9"})
+    r = web.post("/api/v1/connection/test", json={"ip": "10.0.0.9"})
+    assert r.status_code == 200
+    assert len(probe.made) == 2
+
+
+def test_a_failed_login_from_the_voice_makes_the_page_wait(web, probe, clock):
+    # The voice server is another process; it leaves only the time and a reason code.
+    _wait_file().parent.mkdir(parents=True)
+    _wait_file().write_text(json.dumps({"at": clock.now - 10, "reason": "failed"}))
+    r = web.post("/api/v1/connection/test", json={"user": "u"})
+    assert r.status_code == 429
+    assert probe.made == []
+
+
+def test_a_good_login_ends_the_wait_for_the_voice_too(web, probe, clock):
+    probe.connect_ok = False
+    probe.cloud_error = "cloud login failed"
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    assert _wait_file().exists()
+    clock.now += 61
+    probe.connect_ok = True
+    probe.cloud_error = None
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    assert not _wait_file().exists()
+
+
+def test_a_save_during_the_wait_is_kept_and_logs_in_after_it(web, env, probe, reconnect, clock, monkeypatch):
+    later: list = []
+    monkeypatch.setattr(env.server, "_reconnect_later", later.append, raising=False)
+    probe.connect_ok = False
+    probe.cloud_error = "cloud login failed"
     web.post("/api/v1/connection/test", json={"user": "u"})
     r = web.post("/api/v1/connection", json={"user": "new@example.com", "password": "pw"})
-    assert r.status_code == 429
-    assert r.json()["retry_after"] == 60
-    assert not env.env_file.exists()
-    assert reconnect.calls == []
+    assert r.status_code == 200
+    assert r.json()["updated"] == ["DREAME_PASSWORD", "DREAME_USER"]
+    assert r.json()["reconnect_after"] == 60
+    assert "DREAME_USER=new@example.com" in env.env_file.read_text(encoding="utf-8")
+    assert reconnect.calls == []  # no login now
+    assert later == [60]  # but one once the wait is over
+
+
+async def test_the_deferred_reconnect_logs_in_once_the_wait_is_over(env, reconnect, clock, monkeypatch):
+    slept: list = []
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        clock.now += seconds
+
+    monkeypatch.setattr(env.server, "_sleep", sleep, raising=False)
+    old = FakeVacuum()
+    _state["client"] = old
+    env.server._login.failed()
+    await env.server._reconnect_when_allowed()
+    assert slept and sum(slept) >= 59
+    assert reconnect.calls == [None]
+    assert old.disconnects == 1
+    assert _state["client"] is reconnect.client
+
+
+async def test_a_new_save_replaces_a_waiting_reconnect(env, reconnect, clock, monkeypatch):
+    gate = asyncio.Event()
+
+    async def sleep(_seconds):
+        await gate.wait()
+
+    monkeypatch.setattr(env.server, "_sleep", sleep, raising=False)
+    env.server._login.failed()
+    env.server._reconnect_later(60)
+    first = _state["reconnect"]
+    env.server._reconnect_later(60)
+    await asyncio.sleep(0)
+    assert first.cancelled()
+    _state["reconnect"].cancel()
 
 
 def test_a_failed_reconnect_after_a_save_makes_the_next_login_wait(web, env, probe, monkeypatch, clock):
-    from server_fakes import FakeVacuum
-
-    monkeypatch.setattr(env.server, "client_from_env", lambda _dir=None: FakeVacuum(connect_ok=False))
+    monkeypatch.setattr(
+        env.server, "client_from_env", lambda _dir=None: FakeVacuum(connect_ok=False, cloud_error="cloud login failed")
+    )
     web.post("/api/v1/connection", json={"user": "new@example.com", "password": "pw"})
     r = web.post("/api/v1/connection/test", json={"user": "u"})
     assert r.status_code == 429

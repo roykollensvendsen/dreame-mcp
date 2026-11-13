@@ -82,10 +82,13 @@ comes back at once. Every call then answers within about 14 seconds:
 - when the cloud cannot be reached: "I can't reach the Dreame cloud right now.
   Try again in a minute." For a command it adds "The vacuum wasn't told
   anything." before the last sentence, and `success` is false.
-- when a command was handed to the cloud but no answer came back in time, or
-  the answer was not a yes: "The Dreame cloud took too long to answer, so the
-  command may still reach the vacuum. Ask me for its status before you try
-  again." It never says the vacuum wasn't told, since it may have been.
+- when a command was handed to the cloud but no answer came back in time:
+  "The Dreame cloud took too long to answer, so the command may still reach
+  the vacuum. Ask me for its status before you try again."
+- when the cloud answered a command but not with a yes: "The Dreame cloud
+  didn't confirm the command, so it may have reached the vacuum or not. Ask me
+  for its status before you try again." Neither says the vacuum wasn't told,
+  since it may have been.
 - when the password is wrong: "The Dreame cloud turned down the login. Ask
   the claude-voice manager to open the DreameHome login boxes, then to restart
   the vacuum plugin." The manager's boxes are masked, so the password never
@@ -100,7 +103,15 @@ fails on one whose last sentence does not start with something to do.
 
 After a failed login, the server waits 60 seconds before it tries again,
 however often it is asked, because repeated logins make the Xiaomi cloud ask
-for a captcha.
+for a captcha. A failed cloud login is also kept in a small file,
+`~/.local/state/dreame-mcp/last-failed-login` (mode 600, under
+`$XDG_STATE_HOME` when that is set), which the web page's Settings reads too:
+after a failed login on either side, neither logs in again for 60 seconds,
+and a good login on either side ends the wait. Meanwhile the voice says "A
+Dreame login failed a moment ago, so I'm waiting before I try again. Ask again
+in a minute." The file holds only the time and a reason code. One it cannot
+read, or one dated after now, is no wait; and a kept wait ends at most 60
+seconds after the file was written.
 
 ## Asking first
 

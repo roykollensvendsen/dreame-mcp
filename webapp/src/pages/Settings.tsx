@@ -76,8 +76,11 @@ export default function Settings() {
         setConn(r.connection);
         setPassword("");
         const mode = r.connection.mode;
+        const saved = `Saved (${r.updated.join(", ") || "nothing changed"})`;
         setSaveMsg(
-          `Saved (${r.updated.join(", ") || "nothing changed"}) — backend is now: ${mode}.`,
+          r.reconnect_after
+            ? `${saved}. The last login failed, so it logs in with these settings in ${r.reconnect_after} s.`
+            : `${saved} — backend is now: ${mode}.`,
         );
       })
       .catch((e: unknown) => setSaveErr(errText(e)))

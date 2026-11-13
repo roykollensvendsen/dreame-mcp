@@ -147,3 +147,51 @@ name = "maps asked for together share one fetch"
 file = "src/dreame_mcp/client.py"
 find = 'if job is None or job\.done\(\):'
 replace = 'if True:'
+
+[[rule]]
+name = "the wait file is private"
+file = "src/dreame_mcp/login_wait.py"
+find = 'fd = os\.open\(new, os\.O_WRONLY \| os\.O_CREAT \| os\.O_EXCL, 0o600\)'
+replace = 'fd = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)'
+
+[[rule]]
+name = "a successful login ends the wait"
+file = "src/dreame_mcp/login_wait.py"
+find = 'self\.path\.unlink\(missing_ok=True\)'
+replace = 'pass'
+
+[[rule]]
+name = "a damaged wait file counts as no wait"
+file = "src/dreame_mcp/login_wait.py"
+find = 'except \(OSError, ValueError, KeyError, TypeError\):'
+replace = 'except OSError:'
+
+[[rule]]
+name = "a wait file from the future counts as no wait"
+file = "src/dreame_mcp/login_wait.py"
+find = 'if written > now:'
+replace = 'if False:'
+
+[[rule]]
+name = "a kept wait ends at most the longest wait after the file was written"
+file = "src/dreame_mcp/login_wait.py"
+find = 'ends = min\(ends, written \+ LONGEST\)'
+replace = 'pass'
+
+[[rule]]
+name = "a failure without a cloud login does not wait"
+file = "src/dreame_mcp/server.py"
+find = 'if getattr\(client, "cloud_error", None\):'
+replace = 'if not ok or getattr(client, "cloud_error", None):'
+
+[[rule]]
+name = "a save during the wait is kept and logs in after it"
+file = "src/dreame_mcp/server.py"
+find = '_reconnect_later\(wait\)'
+replace = 'pass'
+
+[[rule]]
+name = "a failed login in either process makes the other wait"
+file = "src/dreame_mcp/voice.py"
+find = 'if self\._wait\.left\(\) > 0:'
+replace = 'if False:'
