@@ -237,6 +237,11 @@ def _login_problem(cloud_error: str | None) -> tuple[str, str]:
             "The Dreame cloud wants an extra check before it lets me in.",
             "Open the DreameHome app, then ask again in a minute.",
         )
+    if "rate-limited" in text:
+        return (
+            "The Dreame cloud has had too many logins and wants me to wait.",
+            "Ask again in a few minutes, not sooner.",
+        )
     return UNREACHABLE, TRY_AGAIN
 
 

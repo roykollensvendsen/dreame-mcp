@@ -5,12 +5,13 @@ Offline: a scripted fake client, never the real robot or cloud.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from dreame_mcp import voice
-from dreame_mcp.client import DreameStatus
+from dreame_mcp.client import DreameStatus, _classify_cloud_failure
 from dreame_mcp.voice import Link, Reading, Vacuum, _login_problem
 
 DOCKED = {"2.1": 13, "3.1": 90, "3.2": 3}
@@ -93,6 +94,12 @@ def test_idle_and_fully_charged_is_said_as_on_the_dock():
 
 def test_a_captcha_is_said_as_an_extra_check():
     assert _login_problem("cloud asks for a captcha")[0].startswith("The Dreame cloud wants an extra check")
+
+
+def test_a_rate_limited_login_is_said_as_too_many_logins():
+    wrong, then = _login_problem(_classify_cloud_failure(SimpleNamespace(last_code="87001")))
+    assert wrong == "The Dreame cloud has had too many logins and wants me to wait."
+    assert then == "Ask again in a few minutes, not sooner."
 
 
 # -- logging in and out ------------------------------------------------------

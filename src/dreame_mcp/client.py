@@ -401,6 +401,11 @@ def _classify_cloud_failure(cloud) -> str:
         )
     if code in ("70002", 70002):
         return "cloud login failed: Xiaomi says the account does not exist (70002)"
+    if code in ("87001", 87001):
+        return (
+            "cloud login blocked: rate-limited (87001) after too many logins; wait a few "
+            "minutes before trying again, or the cloud may start asking for an extra check"
+        )
     if code:
         return f"cloud login failed: Xiaomi error code {code}"
     return "cloud login failed: unknown Xiaomi auth error (check DREAME_USER/DREAME_PASSWORD/DREAME_COUNTRY)"
