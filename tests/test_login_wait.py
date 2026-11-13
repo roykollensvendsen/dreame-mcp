@@ -44,7 +44,12 @@ def test_a_failed_login_waits_a_minute(path, clock):
     wait = LoginWait(path, clock=clock)
     wait.failed()
     clock.now += 5
-    assert 54 < wait.left() <= 55
+    assert wait.left() == 55
+
+
+def test_the_file_is_stamped_with_the_time_it_records(path, clock):
+    LoginWait(path, clock=clock).failed()
+    assert path.stat().st_mtime == json.loads(path.read_text())["at"]
 
 
 def test_the_wait_ends_after_its_time(path, clock):
