@@ -156,7 +156,7 @@ class Endpoint:
             setattr(self, name, self._method(name, answer))
 
     def _method(self, name, answer):
-        def method(*args):
+        def method(*args, **kwargs):
             self.calls.append((name, args))
             if isinstance(answer, Exception):
                 raise answer
@@ -176,16 +176,16 @@ def test_the_local_answer_is_used_when_there_is_one():
     cloud = Endpoint(send="cloud")
     c = _client(Endpoint(send="local"), cloud)
     c._last_protocol_error = "old"
-    assert c._safe_call("send", "action", 1) == "local"
+    assert c._safe_call("send", "get_properties", 1) == "local"
     assert c._last_protocol_error is None
     assert cloud.calls == []
 
 
-def test_a_failing_local_call_is_retried_through_the_cloud():
+def test_a_failing_local_read_is_retried_through_the_cloud():
     cloud = Endpoint(send="cloud")
     c = _client(Endpoint(send=OSError("no route")), cloud)
-    assert c._safe_call("send", "action", 1) == "cloud"
-    assert cloud.calls == [("send", ("action", 1))]
+    assert c._safe_call("send", "get_properties", 1) == "cloud"
+    assert cloud.calls == [("send", ("get_properties", 1))]
     assert c._last_protocol_error is None
 
 
@@ -233,6 +233,112 @@ def test_an_empty_cloud_answer_keeps_the_local_error():
     c = _client(Endpoint(send=OSError("no route")), Endpoint(send=None))
     assert c._safe_call("send") is None
     assert c._last_protocol_error == "no route"
+
+
+# -- a command reaches the robot once -------------------------------------------------
+
+
+class Robot:
+    """The vacuum itself: counts every action that reaches it."""
+
+    def __init__(self):
+        self.actions: list = []
+
+
+class LostAnswer:
+    """The protocol as it really fails (protocol.py, DreameVacuumProtocol.send): the request
+    goes out and reaches the robot, the answer is lost, and it raises cloud_unreachable."""
+
+    def __init__(self, robot):
+        self.robot = robot
+        self.cloud = None
+
+    def send(self, method, parameters=None, retry_count=2, timeout=None):
+        if method == "action":
+            self.robot.actions.append(parameters)
+        raise RuntimeError("cloud_unreachable")
+
+
+class DreameCloud:
+    """The logged-in Dreame-native cloud: it passes the action on and says so."""
+
+    _logged_in = True
+
+    def __init__(self, robot):
+        self.robot = robot
+
+    def send(self, method, parameters=None, retry_count=2, timeout=None):
+        if method == "action":
+            self.robot.actions.append(parameters)
+            return {"code": 0}
+        return [{"piid": p["piid"], "code": 0, "value": 1} for p in parameters]  # get_properties
+
+
+def test_a_command_whose_answer_is_lost_reaches_the_robot_once():
+    robot = Robot()
+    c = _client(LostAnswer(robot), DreameCloud(robot))
+    c._did = "42"
+    c._control_sync("start_clean")
+    assert len(robot.actions) == 1
+
+
+def test_a_room_clean_whose_answer_is_lost_reaches_the_robot_once():
+    robot = Robot()
+    c = _client(LostAnswer(robot), DreameCloud(robot))
+    c._did = "42"
+    c._clean_rooms_sync([3])
+    assert len(robot.actions) == 1
+
+
+class RetryingCloud:
+    """The Dreame cloud as its request() really works (protocol.py, request): after a read
+    timeout it sends the same request again, up to retry_count more times. The first
+    request reaches the robot; its answer is lost."""
+
+    _logged_in = True
+
+    def __init__(self, robot):
+        self.robot = robot
+
+    def send(self, method, parameters=None, retry_count=2, timeout=None):
+        for attempt in range(retry_count + 1):
+            self.robot.actions.append(parameters)
+            if attempt:
+                return {"code": 0}
+        return None
+
+
+def test_a_command_is_not_sent_again_by_the_clouds_own_retry():
+    robot = Robot()
+    c = _client(LostAnswer(robot), RetryingCloud(robot))
+    c._did = "42"
+    c._control_sync("stop")
+    assert len(robot.actions) == 1
+
+
+def test_a_command_goes_through_the_logged_in_dreame_cloud_only():
+    local, cloud = Endpoint(send="local"), Endpoint(send="cloud")
+    c = _client(local, cloud)
+    assert c._safe_call("send", "action", 1) == "cloud"
+    assert local.calls == []
+    assert cloud.calls == [("send", ("action", 1))]
+
+
+def test_a_command_the_dreame_cloud_fails_is_not_sent_again_locally():
+    local = Endpoint(send="local")
+    c = _client(local, Endpoint(send=RuntimeError("cloud 500")))
+    assert c._safe_call("send", "action", 1) is None
+    assert local.calls == []
+    assert c._last_protocol_error == "cloud 500"
+
+
+def test_without_the_dreame_cloud_a_command_goes_locally_once():
+    local = Endpoint(send=OSError("no route"))
+    cloud = Endpoint(logged_in=False, send="cloud")
+    c = _client(local, cloud)
+    assert c._safe_call("send", "action", 1) is None
+    assert local.calls == [("send", ("action", 1))]
+    assert cloud.calls == []
 
 
 # -- connected, the auth key, disconnecting ------------------------------------------

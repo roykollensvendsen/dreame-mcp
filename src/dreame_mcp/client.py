@@ -823,9 +823,15 @@ class DreameHomeClient:
             return {"success": False, "error": str(e)}
 
     def _safe_call(self, method: str, *args, **kwargs) -> Any:
-        """Call protocol methods; fall back to the Dreame-native cloud when local fails."""
+        """Call protocol methods; fall back to the Dreame-native cloud when local fails.
+
+        An action is never sent twice: see _send_action_once.
+        """
         if not self._protocol:
             return None
+        if method == "send" and args and args[0] == "action":
+            # RULE: a command whose answer is lost reaches the robot once
+            return self._send_action_once(*args, **kwargs)
 
         func = getattr(self._protocol, method, None)
         cloud = getattr(self._protocol, "cloud", None)
@@ -854,6 +860,35 @@ class DreameHomeClient:
         # Local returned nothing — try the Dreame-native cloud (works even when
         # the null-token UDP path is dead, e.g. firmware patched the bypass).
         return self._safe_call_cloud(method, *args, **kwargs)
+
+    def _send_action_once(self, *args, **kwargs) -> Any:
+        """Send an action (start, stop, a room clean...) by one route, with no second try.
+
+        A failed or empty answer does not mean the robot was not told: the request may have
+        reached it and only the answer was lost. Sending it again through the other route
+        could start, stop or beep twice. So an action goes through the Dreame-native cloud
+        when it is logged in, the reliable control path, and otherwise through the local
+        protocol, and whatever comes back is the answer. Both routes would otherwise try
+        again by themselves after a timeout (retry_count 2 in protocol.py), so that is
+        switched off too.
+        """
+        kwargs["retry_count"] = 0
+        dc = self._dreame_cloud
+        if dc is not None and getattr(dc, "_logged_in", False):
+            return self._safe_call_cloud("send", *args, **kwargs)
+        assert self._protocol is not None
+        func = getattr(self._protocol, "send", None)
+        if func is None:
+            logger.warning("Protocol object missing method: send")
+            return None
+        try:
+            out = func(*args, **kwargs)
+        except Exception as e:
+            self._last_protocol_error = str(e)
+            logger.error("Protocol call failed [send action]: %s", e)
+            return None
+        self._last_protocol_error = None
+        return out
 
     def _safe_call_cloud(self, method: str, *args, **kwargs) -> Any:
         """Retry a protocol call through the Dreame-native cloud client."""
