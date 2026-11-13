@@ -45,6 +45,13 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_live)
 
 
+@pytest.fixture(autouse=True)
+def _private_state_folder(monkeypatch, tmp_path):
+    """Every test gets its own state folder, so the shared login-wait file
+    (dreame_mcp.login_wait) is never the real one in ~/.local/state."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+
+
 # ---------------------------------------------------------------------------
 # Fixtures: synthetic map data
 # ---------------------------------------------------------------------------

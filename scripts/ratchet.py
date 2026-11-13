@@ -55,7 +55,9 @@ DEFAULT_BUDGET = {"seconds": 90, "tolerance": 0.25}
 #: Each module's layer: when it loads, a module may import only modules in lower layers.
 #: An import inside a function runs later, when it is called, so it is not counted.
 LAYERS = {
-    **dict.fromkeys(("__init__", "prompts", "state", "activity_log", "client", "map_export"), 0),  # foundations
+    **dict.fromkeys(
+        ("__init__", "prompts", "state", "activity_log", "client", "map_export", "login_wait"), 0
+    ),  # foundations
     **dict.fromkeys(("portmanteau", "simulator"), 1),  # built on the client and the shared state
     **dict.fromkeys(("agentic", "voice"), 2),  # what Claude calls
     "server": 3,  # the web server and the MCP server around it all

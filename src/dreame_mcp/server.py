@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 import re
 import sys
@@ -12,7 +13,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import uvicorn
@@ -25,6 +26,7 @@ from fastmcp.server.server import ToolResult  # type: ignore[attr-defined]
 from .activity_log import ActivityLog, create_log_router, install_log_handler
 from .agentic import dreame_agentic_workflow
 from .client import DreameHomeClient, client_from_env
+from .login_wait import LoginWait
 from .portmanteau import (
     DREAME_TOOL_OUTPUT_SCHEMA,
     dreame_tool,
@@ -112,23 +114,30 @@ def update_dotenv(values: dict[str, str], path: Path | None = None) -> Path:
     return target
 
 
-#: Seconds a login from the web app waits after a failed one, as the voice server does
-#: (voice.RETRY_AFTER): logging in again and again makes the cloud ask for a captcha.
-LOGIN_GAP = 60.0
-_now = time.monotonic
+#: The wait after a failed cloud login, shared with the voice server through a small
+#: file (login_wait): logging in again and again makes the cloud ask for a captcha.
+_now = time.time
+_login = LoginWait(clock=lambda: _now())
+_sleep = asyncio.sleep
 
 
 def _login_failed() -> None:
-    _state["last_failed_login"] = _now()
+    _login.failed()
 
 
 def _login_wait() -> int:
     """Whole seconds until a login may be tried again; 0 when it may be now."""
-    last = _state.get("last_failed_login")
-    if last is None:
-        return 0
-    left = LOGIN_GAP - (_now() - last)
-    return max(0, int(left + 0.999))
+    return math.ceil(_login.left())
+
+
+def _note_login(client, ok: bool) -> None:
+    """Keep a cloud login's outcome for both processes. Only a cloud login counts: when
+    just the robot's own address was tried, there was nothing for the cloud to count."""
+    # RULE: a failure without a cloud login does not wait
+    if getattr(client, "cloud_error", None):
+        _login_failed()
+    elif ok and getattr(client, "_username", None):
+        _login.succeeded()
 
 
 def _too_soon() -> JSONResponse | None:
@@ -156,6 +165,7 @@ async def _establish(client):
         _state["client"] = None
         return
     ok = await client.connect()
+    _note_login(client, ok)
     _state["connection"] = _connection_snapshot(client)
     if ok:
         _state["client"] = client
@@ -165,7 +175,6 @@ async def _establish(client):
         if client.auth_key:
             logger.debug("Auth key available (DREAME_AUTH_KEY set)")
     else:
-        _login_failed()
         _state["client"] = None
         _state["startup_error"] = " | ".join(offline_reasons())
         logger.warning("Dreame Protocol connect failed — robot offline (%s)", _state["startup_error"])
@@ -611,7 +620,7 @@ async def api_connection_test(payload: dict):
     Merges the body over the .env file values in memory only, connects a
     throwaway client, then disconnects. Nothing is written, _state untouched.
     NOTE: a test with a wrong cloud password still costs one login attempt, so
-    after a failed login the next test or save waits LOGIN_GAP seconds (429).
+    after a failed cloud login the next test waits (429), and so does the voice.
     """
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object expected")
@@ -630,9 +639,9 @@ async def api_connection_test(payload: dict):
             probe.disconnect()
         except Exception:
             pass
+    _note_login(probe, ok)
     if ok:
         return {"success": True, "mode": _mode(probe), "did": probe._did}
-    _login_failed()
     return {"success": False, "error": _probe_failure(probe), "did": probe._did}
 
 
@@ -689,7 +698,9 @@ async def api_connection_update(payload: dict):
 
     Only keys present in the body are changed; an empty password means
     "leave unchanged". Persists to the repo-root .env, applies to the live
-    process env, then reconnects. Returns the new connection snapshot.
+    process env, then reconnects. Returns the new connection snapshot. During the
+    wait after a failed cloud login the settings are still saved, and the login
+    with them follows once the wait is over ("reconnect_after", in seconds).
     """
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="JSON object expected")
@@ -700,24 +711,47 @@ async def api_connection_update(payload: dict):
     updates = _settings_from(payload)
     if not updates:
         return {"updated": [], "connection": _connection_info()}
-    if (refused := _too_soon()) is not None:
-        return refused
     try:
         saved = update_dotenv(updates)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Could not write .env: {e}") from e
     for env_key, value in updates.items():
         os.environ[env_key] = value
+    answer: dict[str, Any] = {"updated": sorted(updates), "env_file": str(saved)}
+    if wait := _login_wait():
+        # RULE: a save during the wait is kept and logs in after it
+        _reconnect_later(wait)
+        return {**answer, "connection": _connection_info(), "reconnect_after": wait}
+    logger.info("Connection settings updated (%s) — reconnecting", sorted(updates))
+    await _reconnect()
+    return {**answer, "connection": _connection_info()}
+
+
+async def _reconnect() -> None:
+    """Drop the live client and connect a new one from the saved settings."""
     old = _state.get("client")
     if old:
         try:
             old.disconnect()
         except Exception:
             pass
-    logger.info("Connection settings updated (%s) — reconnecting", sorted(updates))
     await _establish(client_from_env(_credentials_dir))
-    info = _connection_info()
-    return {"updated": sorted(updates), "env_file": str(saved), "connection": info}
+
+
+def _reconnect_later(wait: int) -> None:
+    """Log in with the saved settings once the login wait is over; a newer save replaces it."""
+    pending = _state.get("reconnect")
+    if pending is not None and not pending.done():
+        pending.cancel()
+    logger.info("Connection settings saved; logging in again in %d s, after the login wait", wait)
+    _state["reconnect"] = asyncio.ensure_future(_reconnect_when_allowed())
+
+
+async def _reconnect_when_allowed() -> None:
+    # The voice may fail a login meanwhile, so look at the wait again after each sleep.
+    while (left := _login.left()) > 0:
+        await _sleep(left)
+    await _reconnect()
 
 
 @app.get("/api/v1/map")

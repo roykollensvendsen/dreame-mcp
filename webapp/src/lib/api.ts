@@ -97,6 +97,8 @@ export interface ConnectionUpdateResult {
   updated: string[];
   env_file: string;
   connection: ConnectionInfo;
+  /** Seconds until the saved settings log in, when a failed login is still waiting. */
+  reconnect_after?: number;
 }
 
 export interface ConnectionTestResult {
