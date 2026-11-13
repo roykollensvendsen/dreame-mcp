@@ -116,3 +116,9 @@ name = "a command whose answer is lost reaches the robot once"
 file = "src/dreame_mcp/client.py"
 find = 'return self\._send_action_once\(\*args, \*\*kwargs\)'
 replace = 'pass'
+
+[[rule]]
+name = "a command that may have gone says so"
+file = "src/dreame_mcp/voice.py"
+find = 'sent = sent and not e\.maybe_sent'
+replace = 'pass'
