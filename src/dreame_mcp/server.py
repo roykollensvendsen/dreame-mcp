@@ -26,7 +26,7 @@ from fastmcp.server.server import ToolResult  # type: ignore[attr-defined]
 from .activity_log import ActivityLog, create_log_router, install_log_handler
 from .agentic import dreame_agentic_workflow
 from .client import DreameHomeClient, client_from_env
-from .login_wait import LoginWait
+from .login_wait import LoginWait, reason_of
 from .portmanteau import (
     DREAME_TOOL_OUTPUT_SCHEMA,
     dreame_tool,
@@ -121,8 +121,8 @@ _login = LoginWait(clock=lambda: _now())
 _sleep = asyncio.sleep
 
 
-def _login_failed() -> None:
-    _login.failed()
+def _login_failed(cloud_error: str | None = None) -> None:
+    _login.failed(reason_of(cloud_error))
 
 
 def _login_wait() -> int:
@@ -135,7 +135,7 @@ def _note_login(client, ok: bool) -> None:
     just the robot's own address was tried, there was nothing for the cloud to count."""
     # RULE: a failure without a cloud login does not wait
     if getattr(client, "cloud_error", None):
-        _login_failed()
+        _login_failed(client.cloud_error)
     elif ok and getattr(client, "_username", None):
         _login.succeeded()
 

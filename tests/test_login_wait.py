@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-from dreame_mcp.login_wait import LONGEST, LoginWait, default_path
+from dreame_mcp.login_wait import LONGEST, LoginWait, default_path, reason_of
 
 
 class Clock:
@@ -181,3 +181,32 @@ def test_a_writer_whose_clock_runs_ahead_still_makes_the_other_wait(path):
     ahead = LoginWait(path, clock=lambda: time.time() + 3600)
     ahead.failed()
     assert LoginWait(path).left() > 0  # the web page, on the real clock
+
+
+RATE_LIMITED = (
+    "cloud login blocked: rate-limited (87001) after too many logins; wait a few minutes "
+    "before trying again, or the cloud may start asking for an extra check"
+)
+
+
+def test_a_rate_limited_login_waits_a_few_minutes(path, clock):
+    # The real limit: after 87001 the cloud wants "a few minutes", not one.
+    wait = LoginWait(path, clock=clock)
+    wait.failed(reason_of(RATE_LIMITED))
+    clock.now += 61
+    assert wait.left() > 0
+    clock.now += 240
+    assert wait.left() == 0
+
+
+@pytest.mark.parametrize(
+    ("cloud_error", "reason"),
+    [
+        (RATE_LIMITED, "rate-limited"),
+        ("cloud login failed: Xiaomi rejected the credentials (70016 = wrong password)", "failed"),
+        ("cloud login blocked: captcha required (Xiaomi rate-limit)", "failed"),
+        (None, "failed"),
+    ],
+)
+def test_the_reason_code_comes_from_the_kind_of_refusal(cloud_error, reason):
+    assert reason_of(cloud_error) == reason

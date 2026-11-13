@@ -8,7 +8,7 @@ read: ``$XDG_STATE_HOME/dreame-mcp/last-failed-login`` (``~/.local/state`` by de
 It holds only when the login failed and a reason code, never anything from the login or
 from the cloud's answer. A file that cannot be read, or one dated after now, is no wait,
 so a broken file can never lock the vacuum out; and however far off its own time says
-the wait ends, a kept wait ends at most ``LONGEST`` after the file was written.
+the wait ends, a kept wait ends at most ``LONGEST`` (five minutes) after the file was written.
 """
 
 from __future__ import annotations
@@ -24,9 +24,20 @@ from pathlib import Path
 logger = logging.getLogger("dreame-mcp.login_wait")
 
 #: Seconds each reason code waits.
-WAITS = {"failed": 60.0}
+WAITS = {
+    "failed": 60.0,
+    # After 87001 the cloud wants "a few minutes"; logging in sooner keeps it refusing.
+    # RULE: a rate-limited login waits a few minutes
+    "rate-limited": 300.0,
+}
 #: No kept wait lasts longer than this after its file was written.
 LONGEST = max(WAITS.values())
+
+
+def reason_of(cloud_error: str | None) -> str:
+    """The reason code for a refused login, from the client's own words for it
+    (client._classify_cloud_failure): only the code is kept, never the words."""
+    return "rate-limited" if "rate-limited (87001)" in (cloud_error or "") else "failed"
 
 
 def default_path() -> Path:
