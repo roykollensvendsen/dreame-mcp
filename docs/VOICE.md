@@ -107,11 +107,13 @@ for a captcha. A failed cloud login is also kept in a small file,
 `~/.local/state/dreame-mcp/last-failed-login` (mode 600, under
 `$XDG_STATE_HOME` when that is set), which the web page's Settings reads too:
 after a failed login on either side, neither logs in again for 60 seconds,
-and a good login on either side ends the wait. Meanwhile the voice says "A
-Dreame login failed a moment ago, so I'm waiting before I try again. Ask again
-in a minute." The file holds only the time and a reason code. One it cannot
-read, or one dated after now, is no wait; and a kept wait ends at most 60
-seconds after the file was written.
+or for 5 minutes when the cloud refused it for too many logins (87001), and a
+good login on either side ends the wait. Meanwhile the voice says "A Dreame
+login failed a moment ago, so I'm waiting before I try again. Ask again in a
+minute.", or after an 87001 "The Dreame cloud has had too many logins and
+wants me to wait. Ask again in a few minutes, not sooner." The file holds only
+the time and a reason code. One it cannot read, or one dated after now, is no
+wait; and a kept wait ends at most 5 minutes after the file was written.
 
 ## Asking first
 

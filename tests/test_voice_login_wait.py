@@ -95,3 +95,36 @@ async def test_a_failed_login_is_still_said_when_the_wait_file_cannot_be_written
     with pytest.raises(Unavailable) as said:
         await Link(client).ready(time.monotonic() + 5)
     assert "turned down the login" in said.value.say
+
+
+class RateLimited(Login):
+    """A login the cloud refuses with 87001, as the real client words it."""
+
+    async def connect(self) -> bool:
+        self.tries += 1
+        self.cloud_error = (
+            "cloud login blocked: rate-limited (87001) after too many logins; wait a few minutes "
+            "before trying again, or the cloud may start asking for an extra check"
+        )
+        return False
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+async def test_a_rate_limited_voice_login_waits_a_few_minutes():
+    clock = Clock()
+    client = RateLimited()
+    link = Link(client, clock=clock)
+    with pytest.raises(Unavailable):
+        await link.ready(clock.now + 5)
+    clock.now += 61  # past the voice's own minute
+    with pytest.raises(Unavailable) as said:
+        await link.ready(clock.now + 5)
+    assert client.tries == 1
+    assert "too many logins" in said.value.say

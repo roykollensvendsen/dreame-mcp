@@ -201,3 +201,9 @@ name = "writing the wait file never stops a login"
 file = "src/dreame_mcp/login_wait.py"
 find = 'except OSError as e:'
 replace = 'except ValueError as e:'
+
+[[rule]]
+name = "a rate-limited login waits a few minutes"
+file = "src/dreame_mcp/login_wait.py"
+find = '"rate-limited": 300\.0,'
+replace = '"rate-limited": 60.0,'

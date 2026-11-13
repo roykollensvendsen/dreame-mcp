@@ -41,7 +41,7 @@ from typing import Any, Protocol, TypeVar
 from fastmcp import FastMCP
 
 from .client import DreameStatus, client_from_env
-from .login_wait import LoginWait
+from .login_wait import LoginWait, reason_of
 
 logger = logging.getLogger("dreame-mcp.voice")
 
@@ -292,7 +292,7 @@ class Link:
             logger.exception("connect failed")
             return False
         if client.cloud_error:
-            self._wait.failed()
+            self._wait.failed(reason_of(client.cloud_error))
         elif ok and client.connected:
             self._wait.succeeded()
         return ok

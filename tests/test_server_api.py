@@ -905,3 +905,13 @@ async def test_a_deferred_reconnect_that_fails_is_logged(env, monkeypatch, caplo
         await _state["reconnect"]
     await asyncio.sleep(0)
     assert "no settings" in caplog.text
+
+
+def test_a_rate_limited_test_login_makes_the_page_wait_a_few_minutes(web, probe, clock):
+    probe.connect_ok = False
+    probe.cloud_error = "cloud login blocked: rate-limited (87001) after too many logins; wait a few minutes"
+    web.post("/api/v1/connection/test", json={"user": "u"})
+    clock.now += 61
+    r = web.post("/api/v1/connection/test", json={"user": "u"})
+    assert r.status_code == 429
+    assert len(probe.made) == 1
