@@ -20,7 +20,9 @@ from dreame_mcp.login_wait import LONGEST, LoginWait, default_path
 
 class Clock:
     def __init__(self) -> None:
-        self.now = time.time() + 1  # a second ahead, so a file written now is not "from the future"
+        # A second behind real time: the file is stamped with this clock's own time
+        # (never ahead of the real one), and is not "from the future" either.
+        self.now = time.time() - 1
 
     def __call__(self) -> float:
         return self.now
@@ -171,3 +173,11 @@ def test_the_file_lives_in_the_users_state_folder(monkeypatch, tmp_path):
 def test_the_folder_is_made_private_when_it_is_missing(path, clock):
     LoginWait(path, clock=clock).failed()
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+def test_a_writer_whose_clock_runs_ahead_still_makes_the_other_wait(path):
+    # The voice's clock is wall time at start plus monotonic time since; after the wall
+    # clock is stepped back (NTP after a suspend) it runs ahead of the real one.
+    ahead = LoginWait(path, clock=lambda: time.time() + 3600)
+    ahead.failed()
+    assert LoginWait(path).left() > 0  # the web page, on the real clock
