@@ -332,6 +332,10 @@ def test_a_command_the_dreame_cloud_fails_is_not_sent_again_locally():
     assert c._last_protocol_error == "cloud 500"
 
 
+def test_a_command_with_no_route_at_all_gives_nothing():
+    assert _client(None, Endpoint(logged_in=False, send="cloud"))._send_action_once("action", 1) is None
+
+
 def test_without_the_dreame_cloud_a_command_goes_locally_once():
     local = Endpoint(send=OSError("no route"))
     cloud = Endpoint(logged_in=False, send="cloud")
