@@ -840,7 +840,8 @@ async def test_the_deferred_reconnect_logs_in_once_the_wait_is_over(env, reconne
     _state["client"] = old
     env.server._login.failed()
     await env.server._reconnect_when_allowed()
-    assert slept and sum(slept) >= 59
+    assert slept == [60]
+    assert env.server._login.left() == 0
     assert reconnect.calls == [None]
     assert old.disconnects == 1
     assert _state["client"] is reconnect.client

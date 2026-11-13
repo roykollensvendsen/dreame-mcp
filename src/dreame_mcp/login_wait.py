@@ -76,11 +76,15 @@ class LoginWait:
         # can't remove or trip over each other's half-written file.
         new = path.with_name(f"{path.name}.{os.getpid()}.new")
         new.unlink(missing_ok=True)
-        text = json.dumps({"at": self._clock(), "reason": reason})
+        at = self._clock()
+        text = json.dumps({"at": at, "reason": reason})
         # RULE: the wait file is private
         fd = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
+        # Stamp it with the time it records: a file system may round its own stamp a
+        # little behind the clock, and the longest wait is counted from the stamp.
+        os.utime(new, (at, at))
         os.replace(new, path)  # whole or not at all: a reader never sees half a file
 
     def left(self) -> float:
