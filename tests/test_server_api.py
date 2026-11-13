@@ -870,3 +870,36 @@ def test_a_failed_reconnect_after_a_save_makes_the_next_login_wait(web, env, pro
     r = web.post("/api/v1/connection/test", json={"user": "u"})
     assert r.status_code == 429
     assert probe.made == []
+
+
+@pytest.fixture
+def unwritable_state(monkeypatch, tmp_path):
+    blocker = tmp_path / "blocked-state"
+    blocker.write_text("not a folder")  # the state folder cannot be made
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocker))
+
+
+async def test_a_good_login_is_kept_when_the_wait_file_cannot_be_written(env, unwritable_state):
+    good = FakeVacuum(username="u@example.com")
+    await env.server._establish(good)
+    assert _state["client"] is good
+
+
+def test_a_failed_test_is_still_answered_when_the_wait_file_cannot_be_written(web, probe, unwritable_state):
+    probe.connect_ok = False
+    probe.cloud_error = "cloud login failed"
+    r = web.post("/api/v1/connection/test", json={"user": "u"})
+    assert r.status_code == 200
+    assert r.json()["success"] is False
+
+
+async def test_a_deferred_reconnect_that_fails_is_logged(env, monkeypatch, caplog):
+    def broken(_dir=None):
+        raise RuntimeError("no settings")
+
+    monkeypatch.setattr(env.server, "client_from_env", broken)
+    env.server._reconnect_later(1)
+    with pytest.raises(RuntimeError):
+        await _state["reconnect"]
+    await asyncio.sleep(0)
+    assert "no settings" in caplog.text
