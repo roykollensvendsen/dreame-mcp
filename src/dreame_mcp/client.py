@@ -406,6 +406,11 @@ def _classify_cloud_failure(cloud) -> str:
     return "cloud login failed: unknown Xiaomi auth error (check DREAME_USER/DREAME_PASSWORD/DREAME_COUNTRY)"
 
 
+def _is_action(method: str, args: tuple) -> bool:
+    """Whether a protocol call tells the robot to do something (start, stop, a room clean...)."""
+    return method == "send" and bool(args) and args[0] == "action"
+
+
 class DreameHomeClient:
     """Async-friendly wrapper around DreameVacuumProtocol (Hybrid Local/Cloud)."""
 
@@ -829,7 +834,7 @@ class DreameHomeClient:
         """
         if not self._protocol:
             return None
-        if method == "send" and args and args[0] == "action":
+        if _is_action(method, args):
             # RULE: a command whose answer is lost reaches the robot once
             return self._send_action_once(*args, **kwargs)
 
