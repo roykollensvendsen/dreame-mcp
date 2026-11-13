@@ -264,6 +264,7 @@ class Link:
         self._clock = clock
         self._task: asyncio.Task[bool] | None = None
         self._last_try: float | None = None
+        self._suspect = False  # a call failed while logged in: the session may have run out
 
     def start(self) -> None:
         """Begin logging in without waiting for it."""
@@ -272,6 +273,7 @@ class Link:
 
     def _begin(self) -> None:
         assert self.client is not None
+        self._suspect = False
         self._last_try = self._clock()
         self._task = asyncio.ensure_future(self._connect(self.client))
 
@@ -284,8 +286,22 @@ class Link:
             return False
 
     def mark_stale(self) -> None:
-        """A read failed while logged in: log in again on the next call, once the wait is over."""
+        """A call failed while logged in: log in again on a later call, once the wait is over.
+
+        The session may have run out: the library renews it only shortly before it ends,
+        and only when a request comes in then, so a quiet night can let it lapse. Until
+        the wait is over the session is used as it is."""
         if self._task is not None and self._task.done():
+            self._suspect = True
+
+    def _drop_if_stale(self, client: VacuumClient) -> None:
+        """Forget a finished login the cloud has dropped, or one a failed call put in doubt
+        once the wait since the last login is over."""
+        if self._task is None or not self._task.done():
+            return
+        waited = self._clock() - (self._last_try or float("-inf"))
+        # RULE: a session the cloud called invalid logs in again at once
+        if not client.connected or (self._suspect and waited >= self._retry_after):
             self._task = None
 
     async def ready(self, deadline: float) -> VacuumClient:
@@ -296,6 +312,7 @@ class Link:
                 "The vacuum isn't set up on the computer yet: its Dreame login is missing.",
                 LOGIN_BOXES,
             )
+        self._drop_if_stale(client)
         if self._task is None:
             waited = self._clock() - (self._last_try or float("-inf"))
             # RULE: a failed login waits before trying again
@@ -413,6 +430,9 @@ class Vacuum:
         try:
             return await act(deadline)
         except Unavailable as e:
+            # A failed command or map, not only a failed read, may mean the session ran out.
+            # RULE: a failed command logs in again on the next call
+            self.link.mark_stale()
             # RULE: a command that may have gone says so
             sent = sent and not e.maybe_sent
             # RULE: a command that was not sent says so
