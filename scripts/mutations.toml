@@ -110,3 +110,16 @@ name = "a browser request without an origin is refused"
 file = "src/dreame_mcp/server.py"
 find = 'if origin is None and from_browser:'
 replace = 'if False:'
+
+[[rule]]
+name = "a session the cloud called invalid logs in again at once"
+file = "src/dreame_mcp/voice.py"
+find = 'if not client\.connected or \(self\._suspect and waited >= self\._retry_after\):'
+replace = 'if self._suspect and waited >= self._retry_after:'
+
+[[rule]]
+name = "a failed command logs in again on the next call"
+file = "src/dreame_mcp/voice.py"
+find = 'self\.link\.mark_stale\(\)'
+occurrence = 2
+replace = 'pass'
