@@ -881,8 +881,7 @@ class DreameHomeClient:
         dc = self._dreame_cloud
         if dc is not None and getattr(dc, "_logged_in", False):
             return self._safe_call_cloud("send", *args, **kwargs)
-        assert self._protocol is not None
-        func = getattr(self._protocol, "send", None)
+        func = getattr(self._protocol, "send", None) if self._protocol is not None else None
         if func is None:
             logger.warning("Protocol object missing method: send")
             return None
