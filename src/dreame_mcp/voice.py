@@ -490,8 +490,9 @@ class Vacuum:
 
         answer = await self._guarded(act, sent=True)
         if not answer["success"] and self._question is None:
-            # The token is spent only once the start was sent: until it expires,
-            # the same yes can be tried again.
+            # A failed start keeps the token, so the same yes can be tried again until it
+            # expires. What keeps that safe when the start may have gone is the tried
+            # flag (True here): the retry reads the state first and does not start twice.
             # RULE: a token is spent only once the start was sent
             self._question = (token, expires, True)
         return answer
