@@ -110,3 +110,9 @@ name = "a browser request without an origin is refused"
 file = "src/dreame_mcp/server.py"
 find = 'if origin is None and from_browser:'
 replace = 'if False:'
+
+[[rule]]
+name = "maps asked for together share one fetch"
+file = "src/dreame_mcp/client.py"
+find = 'if job is None or job\.done\(\):'
+replace = 'if True:'

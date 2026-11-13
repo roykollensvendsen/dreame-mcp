@@ -28,7 +28,7 @@ import sys
 import threading
 import types as _types
 import zlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -433,6 +433,12 @@ class DreameHomeClient:
         self._cloud = None
         self._dreame_cloud = None
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dreame")
+        # Maps run on a worker of their own: a fetch can take up to MAP_FETCH_TIMEOUT, and
+        # maps asked for while one runs share it (_map_job), so they never take the
+        # workers that status reads and commands need.
+        self._map_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dreame-map")
+        self._map_job: Future[dict] | None = None
+        self._map_job_lock = threading.Lock()
         self._map_manager = None
         self._map_renderer = None
         # Serialize map downloads (dashboard + status poll can overlap the executor).
@@ -1016,10 +1022,7 @@ class DreameHomeClient:
         """
         loop = asyncio.get_event_loop()
         try:
-            return await asyncio.wait_for(
-                loop.run_in_executor(self._executor, self._get_map_sync),
-                timeout=MAP_FETCH_TIMEOUT,
-            )
+            return await asyncio.wait_for(self._await_job(loop, self._shared_map_job()), timeout=MAP_FETCH_TIMEOUT)
         except TimeoutError:
             logger.error("get_map() timed out after %ds", MAP_FETCH_TIMEOUT)
             return {
@@ -1027,6 +1030,38 @@ class DreameHomeClient:
                 "error": f"Map request timed out ({MAP_FETCH_TIMEOUT}s). DreameHome cloud may be unreachable.",
                 "timeout": True,
             }
+
+    def _shared_map_job(self) -> Future[dict]:
+        """The map fetch running now, or a new one when none is."""
+        with self._map_job_lock:
+            job = self._map_job
+            # RULE: maps asked for together share one fetch
+            if job is None or job.done():
+                job = self._map_job = self._map_executor.submit(self._get_map_sync)
+            return job
+
+    @staticmethod
+    def _await_job(loop: asyncio.AbstractEventLoop, job: Future[dict]) -> asyncio.Future[dict]:
+        """A future of this caller's own for a shared job: giving up on it leaves the job,
+        and the others waiting for it, alone."""
+        waiter: asyncio.Future[dict] = loop.create_future()
+
+        def settle(done: Future[dict]) -> None:
+            if waiter.done():
+                return
+            try:
+                waiter.set_result(done.result())
+            except Exception as e:
+                waiter.set_exception(e)
+
+        def done(finished: Future[dict]) -> None:
+            try:
+                loop.call_soon_threadsafe(settle, finished)
+            except RuntimeError:  # the loop has closed; nobody is waiting any more
+                pass
+
+        job.add_done_callback(done)
+        return waiter
 
     def _get_map_sync(self) -> dict:
         with self._map_fetch_lock:
