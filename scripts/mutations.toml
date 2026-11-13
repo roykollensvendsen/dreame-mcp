@@ -141,3 +141,9 @@ file = "src/dreame_mcp/voice.py"
 find = 'self\.link\.mark_stale\(\)'
 occurrence = 2
 replace = 'pass'
+
+[[rule]]
+name = "maps asked for together share one fetch"
+file = "src/dreame_mcp/client.py"
+find = 'if job is None or job\.done\(\):'
+replace = 'if True:'
