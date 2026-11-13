@@ -71,11 +71,42 @@ def test_an_unknown_reason_is_kept_as_failed(path, clock):
 
 def test_the_wait_file_is_private(path, clock):
     path.parent.mkdir(parents=True)
-    path.with_name(path.name + ".new").write_text("left over")
-    os.chmod(path.with_name(path.name + ".new"), 0o644)
+    own = path.with_name(f"{path.name}.{os.getpid()}.new")  # this writer's own leftover
+    own.write_text("left over")
+    os.chmod(own, 0o644)
     LoginWait(path, clock=clock).failed()
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
-    assert not path.with_name(path.name + ".new").exists()
+    assert not own.exists()
+
+
+def test_two_writers_at_once_both_land(path, clock):
+    # The voice and the web page fail at the same moment: the other one is half-way
+    # through writing its own new file. Neither write may be lost or break.
+    path.parent.mkdir(parents=True)
+    other = path.with_name(path.name + ".new")
+    other.write_text("the other process, mid-write")
+    other_pid = path.with_name(f"{path.name}.{os.getpid() + 1}.new")
+    other_pid.write_text("another writer, mid-write")
+    LoginWait(path, clock=clock).failed()
+    assert json.loads(path.read_text())["reason"] == "failed"
+    assert other.read_text() == "the other process, mid-write"
+    assert other_pid.read_text() == "another writer, mid-write"
+
+
+@pytest.fixture
+def unwritable(tmp_path):
+    """A state folder that cannot be made: a plain file stands where the folder should be."""
+    blocker = tmp_path / "state"
+    blocker.write_text("not a folder")
+    return blocker / "dreame-mcp" / "last-failed-login"
+
+
+def test_writing_the_wait_file_never_stops_a_login(unwritable, clock, caplog):
+    wait = LoginWait(unwritable, clock=clock)
+    wait.failed()  # a full disk, a quota, a folder that can't be written: no raise
+    wait.succeeded()
+    assert wait.left() == 0
+    assert str(unwritable) in caplog.text
 
 
 def test_a_successful_login_ends_the_wait(path, clock):

@@ -76,3 +76,22 @@ async def test_after_the_shared_wait_the_voice_logs_in_again():
     client = Login()
     assert await Link(client).ready(time.monotonic() + 5) is client
     assert client.tries == 1
+
+
+@pytest.fixture
+def unwritable(monkeypatch, tmp_path):
+    blocker = tmp_path / "blocked-state"
+    blocker.write_text("not a folder")  # the state folder cannot be made
+    monkeypatch.setenv("XDG_STATE_HOME", str(blocker))
+
+
+async def test_a_good_login_gets_through_when_the_wait_file_cannot_be_written(unwritable):
+    client = Login()
+    assert await Link(client).ready(time.monotonic() + 5) is client
+
+
+async def test_a_failed_login_is_still_said_when_the_wait_file_cannot_be_written(unwritable):
+    client = Login(ok=False)
+    with pytest.raises(Unavailable) as said:
+        await Link(client).ready(time.monotonic() + 5)
+    assert "turned down the login" in said.value.say

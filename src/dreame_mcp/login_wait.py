@@ -14,11 +14,14 @@ the wait ends, a kept wait ends at most ``LONGEST`` after the file was written.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger("dreame-mcp.login_wait")
 
 #: Seconds each reason code waits.
 WAITS = {"failed": 60.0}
@@ -45,21 +48,40 @@ class LoginWait:
 
     def failed(self, reason: str = "failed") -> None:
         """Start the wait. A reason that is not a known code is kept as "failed"."""
+        self._keep(lambda: self._write(reason if reason in WAITS else "failed"))
+
+    def succeeded(self) -> None:
+        """End the wait for both processes."""
+        # RULE: a successful login ends the wait
+        self._keep(lambda: self.path.unlink(missing_ok=True))
+
+    def _keep(self, change: Callable[[], object]) -> None:
+        """Change the file, best effort: it only records a login, so a full disk, a quota or
+        a folder that can't be written must never stop or lose the login itself."""
+        try:
+            change()
+        # RULE: writing the wait file never stops a login
+        except OSError as e:
+            logger.warning(
+                "Could not update the login-wait file %s (%s); the voice and the web page "
+                "won't wait for each other until that folder can be written to",
+                self.path,
+                e,
+            )
+
+    def _write(self, reason: str) -> None:
         path = self.path
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        new = path.with_name(path.name + ".new")
+        # One name per writer, so the voice and the web page failing at the same moment
+        # can't remove or trip over each other's half-written file.
+        new = path.with_name(f"{path.name}.{os.getpid()}.new")
         new.unlink(missing_ok=True)
-        text = json.dumps({"at": self._clock(), "reason": reason if reason in WAITS else "failed"})
+        text = json.dumps({"at": self._clock(), "reason": reason})
         # RULE: the wait file is private
         fd = os.open(new, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         os.replace(new, path)  # whole or not at all: a reader never sees half a file
-
-    def succeeded(self) -> None:
-        """End the wait for both processes."""
-        # RULE: a successful login ends the wait
-        self.path.unlink(missing_ok=True)
 
     def left(self) -> float:
         """Seconds until a login may be tried again; 0 when it may be now."""

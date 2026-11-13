@@ -744,7 +744,15 @@ def _reconnect_later(wait: int) -> None:
     if pending is not None and not pending.done():
         pending.cancel()
     logger.info("Connection settings saved; logging in again in %d s, after the login wait", wait)
-    _state["reconnect"] = asyncio.ensure_future(_reconnect_when_allowed())
+    task = asyncio.ensure_future(_reconnect_when_allowed())
+    task.add_done_callback(_reconnect_done)
+    _state["reconnect"] = task
+
+
+def _reconnect_done(task: asyncio.Future) -> None:
+    """Log a deferred reconnect that failed, as _establish logs a failed connect."""
+    if not task.cancelled() and (e := task.exception()) is not None:
+        logger.error("Deferred reconnect with the saved settings failed: %s", e)
 
 
 async def _reconnect_when_allowed() -> None:
