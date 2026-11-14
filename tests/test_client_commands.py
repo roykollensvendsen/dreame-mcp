@@ -46,6 +46,15 @@ def test_the_cleaned_area_and_time_keep_the_robots_units(monkeypatch):
     assert (s.cleaned_area, s.cleaning_time) == (17, 17 * 60)  # m², and seconds as DreameStatus keeps them
 
 
+@pytest.mark.parametrize(("code", "charging"), [(1, True), (2, False), (3, False), (5, False)])
+def test_only_charging_status_1_counts_as_charging(monkeypatch, code, charging):
+    # DreameVacuumChargingStatus: 1 charging, 2 not charging, 3 charged, 5 going back to charge.
+    # On its dock on 2026-11-14, fully charged, Roy's L10s Plus reported 3.2 = 1.
+    c = _connected()
+    _answering(monkeypatch, c, [{"siid": 3, "piid": 2, "value": code}])
+    assert c._get_status_sync().is_charging is charging
+
+
 def test_no_status_without_a_connection():
     assert DreameHomeClient()._get_status_sync().error == "Not connected"
 
