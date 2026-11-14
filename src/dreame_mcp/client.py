@@ -252,8 +252,8 @@ _PROP_ERROR = {"did": None, "siid": 2, "piid": 2}  # error code
 _PROP_BATTERY = {"did": None, "siid": 3, "piid": 1}  # battery %
 _PROP_CHARGING = {"did": None, "siid": 3, "piid": 2}  # charging status
 _PROP_STATUS = {"did": None, "siid": 4, "piid": 1}  # detailed status
-_PROP_TIME = {"did": None, "siid": 4, "piid": 2}  # cleaning time s
-_PROP_AREA = {"did": None, "siid": 4, "piid": 3}  # cleaned area cmÂ²
+_PROP_TIME = {"did": None, "siid": 4, "piid": 2}  # this clean so far, minutes
+_PROP_AREA = {"did": None, "siid": 4, "piid": 3}  # this clean so far, square metres
 _PROP_FANSPEED = {"did": None, "siid": 4, "piid": 4}  # suction level
 
 # ref: custom_components/dreame_vacuum/dreame/types.py  DreameVacuumState
@@ -791,8 +791,10 @@ class DreameHomeClient:
             battery = raw.get("3.1", 0)  # BATTERY_LEVEL
             charging_code = raw.get("3.2", 0)  # CHARGING_STATUS
             fan_speed = raw.get("4.4", 0)  # SUCTION_LEVEL
-            time_s = raw.get("4.2", 0) or 0  # CLEANING_TIME
-            area_cm2 = raw.get("4.3", 0) or 0  # CLEANED_AREA
+            # The robot's own units, seen during a clean on 2026-11-14: 4.3 = 17 and 4.2 = 17
+            # after about 17 minutes. DreameStatus keeps the time in seconds.
+            minutes = raw.get("4.2", 0) or 0  # CLEANING_TIME
+            area_m2 = raw.get("4.3", 0) or 0  # CLEANED_AREA
 
             state_str = _STATE_MAP.get(state_code, f"state_{state_code}")
             is_charging = charging_code in (1, 2)
@@ -807,8 +809,8 @@ class DreameHomeClient:
                 fan_speed=str(fan_speed),
                 is_charging=is_charging,
                 is_cleaning=is_cleaning,
-                cleaned_area=round(area_cm2 / 10000, 2),
-                cleaning_time=int(time_s),
+                cleaned_area=round(float(area_m2), 2),
+                cleaning_time=int(minutes) * 60,
                 raw=raw,
             )
         except Exception as e:

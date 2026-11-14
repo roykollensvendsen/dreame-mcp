@@ -37,6 +37,15 @@ def _connected(did="42"):
 # -- status -------------------------------------------------------------------------
 
 
+def test_the_cleaned_area_and_time_keep_the_robots_units(monkeypatch):
+    # The real limit: during a clean on 2026-11-14 Roy's L10s Plus reported 4.3 = 17 and
+    # 4.2 = 17 after about 17 minutes, so square metres and minutes, not cm² and seconds.
+    c = _connected()
+    _answering(monkeypatch, c, [{"siid": 4, "piid": 2, "value": 17}, {"siid": 4, "piid": 3, "value": 17}])
+    s = c._get_status_sync()
+    assert (s.cleaned_area, s.cleaning_time) == (17, 17 * 60)  # m², and seconds as DreameStatus keeps them
+
+
 def test_no_status_without_a_connection():
     assert DreameHomeClient()._get_status_sync().error == "Not connected"
 
@@ -53,8 +62,8 @@ def test_the_status_is_read_from_its_properties(monkeypatch):
         {"siid": 2, "piid": 1, "value": 6},
         {"siid": 3, "piid": 1, "value": 72},
         {"siid": 3, "piid": 2, "value": 1},
-        {"siid": 4, "piid": 2, "value": 1800},
-        {"siid": 4, "piid": 3, "value": 235000},
+        {"siid": 4, "piid": 2, "value": 30},  # minutes
+        {"siid": 4, "piid": 3, "value": 23.5},  # square metres
         {"siid": 4, "piid": 4, "value": 2},
         {"siid": 2, "piid": 2, "code": -4004},
     ]
