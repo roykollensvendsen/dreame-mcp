@@ -267,13 +267,15 @@ PARTS = (
 DUE = 10
 #: What the cloud gives no reading for, said at the end of every full status.
 NOT_REPORTED = ("water level", "bin fill", "base water tanks")
-CANNOT_REPORT = "It can't report the water level or how full the bin is, and the L10s Plus base has no water tanks."
+# Said on any robot, so it names no model: the base's water tanks (27.1, 27.2) do answer, but
+# an L10s Plus base has none, so they are not read rather than read out wrong.
+CANNOT_REPORT = "It can't report the water level or how full the bin is, and it doesn't read the base's water tanks."
 #: During a clean the cloud also gives no rooms done (the map has no flag for it, and no order
 #: on a full clean) and no time left (no property answers with it); read on 2026-11-14.
 NOT_REPORTED_CLEANING = ("rooms done", "time left")
 CANNOT_REPORT_CLEANING = (
     "It can't report which rooms are done or how long is left, the water level or how full the bin is,"
-    " and the L10s Plus base has no water tanks."
+    " and it doesn't read the base's water tanks."
 )
 WATER_TANK = {0: "out", 1: "fitted", 10: "fitted", 99: "in the station"}
 WATER_FLOW = {1: "low", 2: "medium", 3: "high"}
@@ -303,12 +305,12 @@ def _known(table: dict[int, str], code: int | None) -> str | None:
 
 
 def _wear(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
-    """Percent and hours left of each part the cloud reported."""
+    """Percent and hours left of each part the cloud reported; a reading it left out stays out."""
     wear: dict[str, dict[str, int]] = {}
     for name, _, percent_at, hours_at in PARTS:
-        percent = _num(raw, percent_at)
-        if percent is not None:
-            wear[name] = {"percent": percent, "hours": _num(raw, hours_at) or 0}
+        left = {"percent": _num(raw, percent_at), "hours": _num(raw, hours_at)}
+        if left["percent"] is not None:
+            wear[name] = {k: v for k, v in left.items() if v is not None}
     return wear
 
 

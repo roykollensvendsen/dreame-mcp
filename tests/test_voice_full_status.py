@@ -166,7 +166,7 @@ async def test_an_error_is_a_problem():
 async def test_a_full_status_says_what_it_cannot_report():
     answer = await _say()
     assert answer["say"].endswith(
-        "It can't report the water level or how full the bin is, and the L10s Plus base has no water tanks."
+        "It can't report the water level or how full the bin is, and it doesn't read the base's water tanks."
     )
     assert set(answer["not_reported"]) == {"water level", "bin fill", "base water tanks"}
 
@@ -204,7 +204,7 @@ async def test_a_clean_in_progress_says_what_it_cannot_report():
     answer = await _say(**CLEANING)
     assert answer["say"].endswith(
         "It can't report which rooms are done or how long is left, the water level or how full the bin is,"
-        " and the L10s Plus base has no water tanks."
+        " and it doesn't read the base's water tanks."
     )
     assert {"rooms done", "time left"} <= set(answer["not_reported"])
 
@@ -275,3 +275,18 @@ async def test_the_pretend_vacuum_reports_how_far_its_clean_has_got():
 
 async def test_the_pretend_vacuum_gives_no_full_status_before_it_is_logged_in():
     assert (await SimulatedVacuum().get_full_status())["success"] is False
+
+
+async def test_what_it_cannot_report_holds_for_any_model():
+    # A fact about one model would be said aloud on every other one: the words name none.
+    for cleaning in ({}, CLEANING):
+        say = (await _say(**cleaning))["say"]
+        tail = say[say.index("It can't") :]
+        assert not any(model in tail for model in ("L10", "Plus", "Ultra", "r2363a"))
+
+
+async def test_a_missing_hours_reading_is_left_out_not_zero():
+    vacuum = Recorded()
+    del vacuum.raw["11.2"]
+    answer = await Vacuum(Link(vacuum), settle=0).full_status()
+    assert answer["wear"]["filter"] == {"percent": 75}
