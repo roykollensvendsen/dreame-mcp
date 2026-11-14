@@ -33,8 +33,6 @@ ROOT = Path(__file__).resolve().parent.parent
 TABLE = ROOT / "scripts" / "mutations.toml"
 #: The file being mutated, kept here so a run that is killed can be undone.
 RECOVERY = ROOT / "scripts" / ".mutate-recovery.json"
-#: A mutation that makes the tests hang is a kill, but not one that can be attributed.
-SUITE_TIMEOUT = 600
 #: Where each suite run keeps its temporary files: one folder per checkout, outside it (inside,
 #: a test that makes its own git repository would find this one around it). A run's folder
 #: goes when the run ends; one left by a killed run goes at the next start. On 2026-11-14 the
@@ -130,7 +128,6 @@ def failing_tests() -> list[str]:
             env=env,
             capture_output=True,
             text=True,
-            timeout=SUITE_TIMEOUT,
             check=False,
         )
     finally:
@@ -166,10 +163,11 @@ def main() -> int:
         bad = mutated(original, rule)
         RECOVERY.write_text(json.dumps({"file": rule["file"], "original": original, "mutated": bad}))
         path.write_text(bad)
+        # No time limit, on purpose (Roy's rule for mutation and ratchet runs): a suite cut
+        # short proves nothing. A mutation that makes the tests hang hangs the run, in plain
+        # sight, until someone stops it; the recovery file then puts the line back.
         try:
             failed = failing_tests()
-        except subprocess.TimeoutExpired:
-            failed = ["(the tests hung)"]
         finally:
             if path.read_text() == bad:
                 path.write_text(original)
