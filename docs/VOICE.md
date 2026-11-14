@@ -49,7 +49,7 @@ first:
 the dock, fully charged, battery 100 percent; water tank fitted, mop pad not
 attached, water flow medium; left: main brush 87, side brush 81, filter 75,
 mop pad 100, sensors 0 percent; auto-empty on, dust bag fitted. It can't
-report the water level or how full the bin is, and the L10s Plus base has no
+report the water level or how full the bin is, and it doesn't read the base's
 water tanks."
 
 While it cleans, how far it has got comes straight after what it is doing,
@@ -59,12 +59,15 @@ minutes; now in Kitchen; …". The cloud gives the share of the floor done,
 the square metres and the minutes, but not which rooms are done (the map has
 no flag for it, and no order on a full clean) or how long is left, so during
 a clean the last sentence says so too. It works out no time left from the
-pace either: that would be a guess, so none is said.
+pace either: that would be a guess, so none is said. A paused clean says no
+progress: it was read only during a clean, so a pause is left out until it
+has been seen.
 
 That last sentence is always said. The cloud reports the water-flow setting
 but not how much water is in the tank, and how full the bin is only as a
 warning once it is full. It does answer for a base's clean and dirty water
-tanks, but an L10s Plus base has none, so those readings are left out. Which
+tanks, but an L10s Plus base has none, so those readings are left out; the
+sentence names no model, so it stays true on any robot. Which
 properties the cloud answers was read from Roy's L10s Plus
 (`dreame.vacuum.r2363a`) on 2026-11-14; `tests/test_voice_full_status.py`
 keeps that answer, and `FULL_STATUS` in `client.py` says what each one means.
