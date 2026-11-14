@@ -39,6 +39,10 @@ packages = ["src/dreame_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Keep a test's temporary folder only when it failed, and only from the last run: kept for
+# every test and three runs, they filled /tmp to its last inode on 2026-11-14.
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
 markers = ["live: tests requiring real Dreame hoover (--live or DREAME_LIVE=1)"]
 
 [dependency-groups]

@@ -17,11 +17,15 @@ changed while it was mutated (that file is then left as it is).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -31,6 +35,11 @@ TABLE = ROOT / "scripts" / "mutations.toml"
 RECOVERY = ROOT / "scripts" / ".mutate-recovery.json"
 #: A mutation that makes the tests hang is a kill, but not one that can be attributed.
 SUITE_TIMEOUT = 600
+#: Where each suite run keeps its temporary files: one folder per checkout, outside it (inside,
+#: a test that makes its own git repository would find this one around it). A run's folder
+#: goes when the run ends; one left by a killed run goes at the next start. On 2026-11-14 the
+#: runs' leftovers had filled /tmp to its last inode.
+MUTATE_TMP = Path(tempfile.gettempdir()) / f"dreame-mcp-mutate-{hashlib.sha256(str(ROOT).encode()).hexdigest()[:8]}"
 
 
 def test_name(rule: str) -> str:
@@ -62,20 +71,71 @@ def mutated(text: str, rule: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _owner_may_enter(path: Path) -> None:
+    """Give the owner read, write and enter on a folder or file, keeping its other bits.
+    A link is left alone: what it points to may be outside, and is not ours to change."""
+    if not path.is_symlink():
+        path.chmod(stat.S_IMODE(path.lstat().st_mode) | stat.S_IRWXU)
+
+
+def _again(func, path, _error) -> None:
+    """rmtree's second try at something it could not remove: open its folder, then retry."""
+    _owner_may_enter(Path(path).parent)
+    func(path)
+
+
+def remove(folder: Path) -> None:
+    """Remove a folder of test files, also the ones a test left with no permissions,
+    without following a link out of it."""
+    if folder.is_symlink():
+        folder.unlink()
+        return
+    if not folder.is_dir():
+        return
+    _owner_may_enter(folder)
+    for top, dirs, _files in os.walk(folder):  # top down: a folder is opened before it is entered
+        for name in dirs:
+            _owner_may_enter(Path(top) / name)
+    shutil.rmtree(folder, onexc=_again)
+
+
+def sweep() -> None:
+    """Remove what killed runs left in MUTATE_TMP."""
+    if MUTATE_TMP.is_dir():
+        for left in MUTATE_TMP.iterdir():
+            remove(left)
+
+
 def failing_tests() -> list[str]:
     """Run the tests; the names of those that failed."""
     # Without bytecode, a mutation never runs from the previous one's cache
     # (the cache is checked by size and a one-second timestamp).
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-    done = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "--tb=no", "--color=no", "-p", "no:cacheprovider"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=SUITE_TIMEOUT,
-        check=False,
-    )
+    MUTATE_TMP.mkdir(mode=0o700, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="run-", dir=MUTATE_TMP))
+    try:
+        done = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=no",
+                "--color=no",
+                "-p",
+                "no:cacheprovider",
+                f"--basetemp={run}",
+            ],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=SUITE_TIMEOUT,
+            check=False,
+        )
+    finally:
+        # RULE: a suite run leaves no temporary files behind
+        remove(run)
     return [m.split("[")[0] for m in re.findall(r"^(?:FAILED|ERROR) \S+::(\S+)", done.stdout, re.MULTILINE)]
 
 
@@ -93,6 +153,8 @@ def repair() -> None:
 
 def main() -> int:
     repair()
+    # RULE: temporary files a killed run left are swept at the next start
+    sweep()
     table = rules()
     if not table:
         print(f"no rules in {TABLE.relative_to(ROOT)}")
