@@ -134,6 +134,16 @@ class SimulatedVacuum:
         self.sent.append("clean_rooms:" + ",".join(str(r) for r in room_ids))
         return {"success": True, "message": f"Sent room clean {room_ids}"}
 
+    async def get_full_status(self) -> dict:
+        """Everything in client.FULL_STATUS, for a vacuum with nothing wrong."""
+        status = await self.get_status()
+        if status.error:
+            return {"success": False, "error": status.error}
+        wear = {"9.1": 250, "9.2": 85, "10.1": 150, "10.2": 80, "11.1": 70, "11.2": 100,
+                "16.1": 60, "16.2": 18, "18.1": 90, "18.2": 70}  # fmt: skip
+        raw = {**status.raw, "4.5": 2, "4.6": 1, "4.35": 0, "4.41": 0, "4.53": 1, "15.1": 1, "15.5": 0, "27.3": 0}
+        return {"success": True, "raw": {**raw, **wear}}
+
     async def get_map(self) -> dict:
         if not self._connected:
             return {"success": False, "error": "Not connected"}

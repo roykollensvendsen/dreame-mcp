@@ -2,11 +2,12 @@
 
 `dreame-voice-mcp` is a second, much smaller MCP server in this package, for
 voice assistants and other clients that read a one-line answer aloud. It speaks
-MCP over stdio only, and has nine tools and no web app or sampling.
+MCP over stdio only, and has ten tools and no web app or sampling.
 
 | Tool | Does | Asks first |
 |---|---|---|
 | `vacuum_status` | Says what the vacuum is doing and its battery | — |
+| `vacuum_full_status` | Says everything it reports, problems first | — |
 | `vacuum_clean_all` | Starts a full clean, unless it is already cleaning | only with `--ask-before-start` |
 | `vacuum_pause` | Pauses a clean, unless there is nothing to pause | no |
 | `vacuum_stop` | Stops where it is, unless there is nothing to stop | no |
@@ -36,6 +37,28 @@ already cleaning; stop it first. It sends what the DreameHome app sends for a
 room clean (action 4.1 with status 18 and the rooms in property 4.10), with
 the robot's current suction and water settings and one pass per room, then
 reads the state back: "Started cleaning Kitchen and Hallway, battery 90 percent."
+
+`vacuum_full_status` is for when the user asks for everything; `vacuum_status`
+stays the short one. It reads, and only reads: errors and warnings, the
+water tank (fitted or out), the mop pad, the water-flow setting, how much is
+left of the main brush, side brush, filter, mop pad and sensors (a part at 10
+percent or less is due), and the base's auto-empty and dust bag. Problems come
+first:
+
+"Problems: the dust bin is full; the sensors are due for cleaning. It is on
+the dock, fully charged, battery 100 percent; water tank fitted, mop pad not
+attached, water flow medium; left: main brush 87, side brush 81, filter 75,
+mop pad 100, sensors 0 percent; auto-empty on, dust bag fitted. It can't
+report the water level or how full the bin is, and the L10s Plus base has no
+water tanks."
+
+That last sentence is always said. The cloud reports the water-flow setting
+but not how much water is in the tank, and how full the bin is only as a
+warning once it is full. It does answer for a base's clean and dirty water
+tanks, but an L10s Plus base has none, so those readings are left out. Which
+properties the cloud answers was read from Roy's L10s Plus
+(`dreame.vacuum.r2363a`) on 2026-11-14; `tests/test_voice_full_status.py`
+keeps that answer, and `FULL_STATUS` in `client.py` says what each one means.
 
 `say` is meant to be read aloud as it is. `state` is one short word
 (`cleaning`, `paused`, `returning`, `charging`, `docked`, `idle`, `error`, …)

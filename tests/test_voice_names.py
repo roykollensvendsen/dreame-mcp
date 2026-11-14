@@ -24,6 +24,10 @@ LOOK_ALIKE: dict[frozenset[str], str] = {
     frozenset({"vacuum_status", "vacuum_stop"}): (
         "'State and battery now.' against 'Stop where it is.'; status only reads"
     ),
+    frozenset({"vacuum_status", "vacuum_full_status"}): (
+        "'State and battery now.' against 'Everything it can report.'; both only read, so a mix-up"
+        " costs a longer or shorter answer, never a move"
+    ),
     frozenset({"vacuum_rooms", "vacuum_clean_rooms"}): (
         "'List the map's rooms.' against 'Clean only named rooms.'; the clean needs room names"
     ),

@@ -13,7 +13,7 @@ from fastmcp import Client
 from dreame_mcp.simulator import SimulatedVacuum
 from dreame_mcp.voice import Link, Vacuum, build_server
 
-READ_ONLY = {"vacuum_status", "vacuum_where", "vacuum_rooms"}
+READ_ONLY = {"vacuum_status", "vacuum_where", "vacuum_rooms", "vacuum_full_status"}
 ACTS = {
     "vacuum_clean_all",
     "vacuum_confirm",

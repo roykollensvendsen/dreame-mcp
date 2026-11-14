@@ -18,7 +18,7 @@ from dreame_mcp.simulator import SimulatedVacuum
 from dreame_mcp.voice import Link, Reading, Vacuum, build_server, instructions
 
 SIX = {"vacuum_status", "vacuum_clean_all", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
-TOOLS = SIX | {"vacuum_where", "vacuum_rooms", "vacuum_clean_rooms"}
+TOOLS = SIX | {"vacuum_where", "vacuum_rooms", "vacuum_clean_rooms", "vacuum_full_status"}
 
 
 class Clock:
