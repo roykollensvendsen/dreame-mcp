@@ -243,3 +243,15 @@ name = "a full status names the room only from the live map"
 file = "src/dreame_mcp/voice.py"
 find = 'return room\.get\("name"\) if m\.get\("source"\) == "live" else None'
 replace = 'return room.get("name")'
+
+[[rule]]
+name = "a suite run leaves no temporary files behind"
+file = "scripts/mutate.py"
+find = '^\s+remove\(run\)$'
+replace = 'pass'
+
+[[rule]]
+name = "temporary files a killed run left are swept at the next start"
+file = "scripts/mutate.py"
+find = '^\s+sweep\(\)$'
+replace = 'pass'

@@ -1,6 +1,6 @@
 """Rules that must fail when switched off (the plugin standard, rule 15).
 
-Every `# RULE:` marker in the voice server has a row in scripts/mutations.toml,
+Every `# RULE:` marker in the source, and in scripts/mutate.py itself, has a row in scripts/mutations.toml,
 every row has its marker just above the line it switches off, and every rule
 has a test named after it. scripts/mutate.py then proves that test fails when
 the rule is switched off; this keeps the three from drifting apart.
@@ -23,7 +23,7 @@ MARKER = re.compile(r"^\s*# RULE: (.+?)\s*$")
 
 def _markers() -> dict[str, tuple[str, int]]:
     found = {}
-    for path in (ROOT / "src").rglob("*.py"):
+    for path in [*(ROOT / "src").rglob("*.py"), ROOT / "scripts" / "mutate.py"]:
         for i, line in enumerate(path.read_text().splitlines()):
             if m := MARKER.match(line):
                 found[m.group(1)] = (str(path.relative_to(ROOT)), i)
