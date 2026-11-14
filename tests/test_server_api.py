@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from server_fakes import FakeVacuum, isolate_server
 
+from dreame_mcp.client import _classify_cloud_failure
 from dreame_mcp.state import _state
 
 
@@ -909,7 +910,7 @@ async def test_a_deferred_reconnect_that_fails_is_logged(env, monkeypatch, caplo
 
 def test_a_rate_limited_test_login_makes_the_page_wait_a_few_minutes(web, probe, clock):
     probe.connect_ok = False
-    probe.cloud_error = "cloud login blocked: rate-limited (87001) after too many logins; wait a few minutes"
+    probe.cloud_error = _classify_cloud_failure(SimpleNamespace(last_code="87001"))  # the client's own words
     web.post("/api/v1/connection/test", json={"user": "u"})
     clock.now += 61
     r = web.post("/api/v1/connection/test", json={"user": "u"})

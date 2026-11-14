@@ -11,9 +11,11 @@ import json
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from dreame_mcp.client import _classify_cloud_failure
 from dreame_mcp.voice import Link, Unavailable
 
 
@@ -102,10 +104,7 @@ class RateLimited(Login):
 
     async def connect(self) -> bool:
         self.tries += 1
-        self.cloud_error = (
-            "cloud login blocked: rate-limited (87001) after too many logins; wait a few minutes "
-            "before trying again, or the cloud may start asking for an extra check"
-        )
+        self.cloud_error = _classify_cloud_failure(SimpleNamespace(last_code="87001"))
         return False
 
 

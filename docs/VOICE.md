@@ -113,7 +113,14 @@ login failed a moment ago, so I'm waiting before I try again. Ask again in a
 minute.", or after an 87001 "The Dreame cloud has had too many logins and
 wants me to wait. Ask again in a few minutes, not sooner." The file holds only
 the time and a reason code. One it cannot read, or one dated after now, is no
-wait; and a kept wait ends at most 5 minutes after the file was written.
+wait; and a kept wait ends at most its own wait (60 seconds, or 5 minutes after
+an 87001) after the file was written.
+
+A captcha waits the ordinary 60 seconds, not 5 minutes. Xiaomi calls it a
+rate-limit, but it doesn't clear with time: it clears once it is answered in
+the DreameHome app, which is what the voice asks for. A longer wait would only
+keep the vacuum off after that is done, and one try a minute is still far from
+the run of logins that brings a captcha on.
 
 ## Asking first
 

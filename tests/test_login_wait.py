@@ -12,10 +12,12 @@ import json
 import os
 import stat
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from dreame_mcp.login_wait import LONGEST, LoginWait, default_path, reason_of
+from dreame_mcp.client import _classify_cloud_failure
+from dreame_mcp.login_wait import LoginWait, default_path, reason_of
 
 
 class Clock:
@@ -129,11 +131,14 @@ def test_a_success_with_no_file_is_fine(path, clock):
     assert not path.exists()
 
 
-def test_a_kept_wait_ends_at_most_the_longest_wait_after_the_file_was_written(path, clock):
+@pytest.mark.parametrize(("reason", "longest"), [("failed", 60), ("rate-limited", 300)])
+def test_a_kept_wait_ends_at_most_its_own_wait_after_the_file_was_written(path, clock, reason, longest):
+    # A file whose own time is an hour ahead still ends its reason's wait after its stamp:
+    # a failed login's file never holds the vacuum off for a rate-limited login's wait.
     path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"at": clock.now + 10_000, "reason": "failed"}))
+    path.write_text(json.dumps({"at": clock.now + 3600, "reason": reason}))
     os.utime(path, (clock.now, clock.now))
-    assert LoginWait(path, clock=clock).left() == LONGEST
+    assert LoginWait(path, clock=clock).left() == longest
 
 
 def test_a_wait_file_from_the_future_counts_as_no_wait(path, clock):
@@ -183,10 +188,13 @@ def test_a_writer_whose_clock_runs_ahead_still_makes_the_other_wait(path):
     assert LoginWait(path).left() > 0  # the web page, on the real clock
 
 
-RATE_LIMITED = (
-    "cloud login blocked: rate-limited (87001) after too many logins; wait a few minutes "
-    "before trying again, or the cloud may start asking for an extra check"
-)
+def _refused(**cloud) -> str:
+    """The client's own words for a cloud that refused the login this way."""
+    return _classify_cloud_failure(SimpleNamespace(**cloud))
+
+
+# From the client itself, not a copy: if its wording changes, these tests see it.
+RATE_LIMITED = _refused(last_code="87001")
 
 
 def test_a_rate_limited_login_waits_a_few_minutes(path, clock):
@@ -200,13 +208,20 @@ def test_a_rate_limited_login_waits_a_few_minutes(path, clock):
 
 
 @pytest.mark.parametrize(
-    ("cloud_error", "reason"),
+    ("cloud", "reason"),
     [
-        (RATE_LIMITED, "rate-limited"),
-        ("cloud login failed: Xiaomi rejected the credentials (70016 = wrong password)", "failed"),
-        ("cloud login blocked: captcha required (Xiaomi rate-limit)", "failed"),
-        (None, "failed"),
+        ({"last_code": "87001"}, "rate-limited"),
+        ({"last_code": 87001}, "rate-limited"),
+        ({"last_code": "70016"}, "failed"),
+        ({"last_code": "70002"}, "failed"),
+        ({"captcha_img": "data:image/png;base64,AAAA"}, "failed"),
+        ({"verification_url": "https://account.xiaomi.com/verify"}, "failed"),
+        ({}, "failed"),
     ],
 )
-def test_the_reason_code_comes_from_the_kind_of_refusal(cloud_error, reason):
-    assert reason_of(cloud_error) == reason
+def test_the_reason_code_comes_from_the_kind_of_refusal(cloud, reason):
+    assert reason_of(_refused(**cloud)) == reason
+
+
+def test_no_cloud_error_is_an_ordinary_failure():
+    assert reason_of(None) == "failed"

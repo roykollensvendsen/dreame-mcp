@@ -8,7 +8,7 @@ read: ``$XDG_STATE_HOME/dreame-mcp/last-failed-login`` (``~/.local/state`` by de
 It holds only when the login failed and a reason code, never anything from the login or
 from the cloud's answer. A file that cannot be read, or one dated after now, is no wait,
 so a broken file can never lock the vacuum out; and however far off its own time says
-the wait ends, a kept wait ends at most ``LONGEST`` (five minutes) after the file was written.
+the wait ends, a kept wait ends at most its own reason's wait after the file was written.
 """
 
 from __future__ import annotations
@@ -30,8 +30,6 @@ WAITS = {
     # RULE: a rate-limited login waits a few minutes
     "rate-limited": 300.0,
 }
-#: No kept wait lasts longer than this after its file was written.
-LONGEST = max(WAITS.values())
 
 
 def reason_of(cloud_error: str | None) -> str:
@@ -94,7 +92,7 @@ class LoginWait:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
         # Stamp it with the time it records, but never ahead of the real clock: a file
-        # system may round its own stamp a little behind, and the longest wait is counted
+        # system may round its own stamp a little behind, and the cap on a wait is counted
         # from the stamp; a writer whose clock runs ahead (the voice's, after the wall
         # clock was stepped back) must not leave a file the other side reads as future.
         stamp = min(at, time.time())
@@ -107,7 +105,8 @@ class LoginWait:
         try:
             written = path.stat().st_mtime
             kept = json.loads(path.read_text(encoding="utf-8"))
-            ends = float(kept["at"]) + WAITS[kept["reason"]]
+            wait = WAITS[kept["reason"]]
+            ends = float(kept["at"]) + wait
         # RULE: a damaged wait file counts as no wait
         except (OSError, ValueError, KeyError, TypeError):
             return 0.0
@@ -115,7 +114,7 @@ class LoginWait:
         # RULE: a wait file from the future counts as no wait
         if written > now:
             return 0.0
-        # RULE: a kept wait ends at most the longest wait after the file was written
-        ends = min(ends, written + LONGEST)
+        # RULE: a kept wait ends at most its own wait after the file was written
+        ends = min(ends, written + wait)
         left = ends - now
         return left if math.isfinite(left) and left > 0 else 0.0
