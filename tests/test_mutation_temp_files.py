@@ -105,3 +105,17 @@ def test_removing_a_missing_folder_is_fine(tmp_path):
     link.symlink_to(tmp_path, target_is_directory=True)
     mutate.remove(link)
     assert not link.exists() and tmp_path.is_dir()
+
+
+def test_a_suite_run_has_no_time_limit(project, monkeypatch):
+    # Roy's rule: mutation runs are never time-limited, since a suite cut short proves
+    # nothing. A mutation that makes the tests hang therefore hangs the run, in plain sight.
+    seen: dict = {}
+
+    def run(*args, **kwargs):
+        seen.update(kwargs)
+        return mutate.subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(mutate.subprocess, "run", run)
+    assert mutate.failing_tests() == []
+    assert "timeout" not in seen
