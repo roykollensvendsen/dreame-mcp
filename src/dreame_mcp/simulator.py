@@ -142,6 +142,9 @@ class SimulatedVacuum:
         wear = {"9.1": 250, "9.2": 85, "10.1": 150, "10.2": 80, "11.1": 70, "11.2": 100,
                 "16.1": 60, "16.2": 18, "18.1": 90, "18.2": 70}  # fmt: skip
         raw = {**status.raw, "4.5": 2, "4.6": 1, "4.35": 0, "4.41": 0, "4.53": 1, "15.1": 1, "15.5": 0, "27.3": 0}
+        if self._state == SWEEPING:  # how far this clean has got, as the robot reports it
+            minutes = int((self._clock() - self._since) // 60)
+            raw.update({"4.2": minutes, "4.3": minutes, "4.63": min(99, minutes * 2)})
         return {"success": True, "raw": {**raw, **wear}}
 
     async def get_map(self) -> dict:

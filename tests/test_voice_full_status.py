@@ -92,6 +92,7 @@ class Recorded:
         self.raw.update(change)
         self.connected = True
         self.cloud_error = None
+        self.map_source = "live"
 
     async def connect(self) -> bool:
         return True
@@ -99,8 +100,18 @@ class Recorded:
     async def get_full_status(self) -> dict:
         return {"success": True, "raw": dict(self.raw)}
 
+    async def get_map(self) -> dict:
+        self.map_reads = getattr(self, "map_reads", 0) + 1
+        return {"success": True, "source": self.map_source, "map_data": {"room_list": ROOMS, "robot_room": ROOMS[1]}}
+
     def disconnect(self) -> None:
         pass
+
+
+#: Made up, never a real map: two rooms, the robot in the second.
+ROOMS = [{"id": 1, "name": "Room 1"}, {"id": 2, "name": "Room 2"}]
+#: A clean in progress, made up: cleaning (2.1 = 1), 25 minutes, 21 square metres, 40 percent done.
+CLEANING = {"2.1": 1, "3.2": 2, "4.2": 25, "4.3": 21, "4.63": 40, "4.35": 0, "16.1": 100}
 
 
 async def _say(**change: Any) -> dict:
@@ -174,3 +185,93 @@ async def test_the_pretend_vacuum_has_a_full_status(offline):
     answer = await Vacuum(Link(SimulatedVacuum(offline=offline)), simulated=True, settle=0).full_status()
     assert answer["success"] is not offline
     assert answer["say"].startswith("Simulated: ")
+
+
+# -- during a clean -----------------------------------------------------------------
+
+
+async def test_a_clean_in_progress_says_how_far_it_has_got():
+    answer = await _say(**CLEANING)
+    say = answer["say"]
+    assert say.startswith(
+        "No problems. It is cleaning, battery 100 percent; 40 percent done, 21 square metres in 25 minutes; now in Room 2;"
+    )
+    assert answer["progress"] == {"percent": 40, "square_metres": 21, "minutes": 25}
+    assert answer["room"] == "Room 2"
+
+
+async def test_a_clean_in_progress_says_what_it_cannot_report():
+    answer = await _say(**CLEANING)
+    assert answer["say"].endswith(
+        "It can't report which rooms are done or how long is left, the water level or how full the bin is,"
+        " and the L10s Plus base has no water tanks."
+    )
+    assert {"rooms done", "time left"} <= set(answer["not_reported"])
+
+
+async def test_a_full_status_names_the_room_only_from_the_live_map():
+    vacuum = Recorded(**CLEANING)
+    vacuum.map_source = "saved"
+    answer = await Vacuum(Link(vacuum), settle=0).full_status()
+    assert "Room 2" not in answer["say"]
+    assert answer["room"] is None
+
+
+async def test_on_the_dock_there_is_no_progress_and_no_map_read():
+    vacuum = Recorded()
+    answer = await Vacuum(Link(vacuum), settle=0).full_status()
+    assert "percent done" not in answer["say"]
+    assert answer["progress"] is None
+    assert getattr(vacuum, "map_reads", 0) == 0
+
+
+async def test_a_map_that_cannot_be_had_still_gives_the_progress():
+    vacuum = Recorded(**CLEANING)
+
+    async def no_map() -> dict:
+        return {"success": False, "error": "no map"}
+
+    vacuum.get_map = no_map  # type: ignore[method-assign]
+    answer = await Vacuum(Link(vacuum), settle=0).full_status()
+    assert answer["success"]
+    assert "40 percent done, 21 square metres in 25 minutes;" in answer["say"]
+    assert "now in" not in answer["say"]
+
+
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        ({"27.3": 1}, "the dust bag in the base is not fitted"),
+        ({"27.3": 2}, "the dust bag in the base is to be checked"),
+        ({"15.5": 2}, "the base didn't empty the bin"),
+        ({"4.41": 5}, "the water tank is low"),
+    ],
+)
+async def test_the_base_and_the_water_say_their_problems(change, problem):
+    say = (await _say(**{"4.35": 0, "16.1": 100, **change}))["say"]
+    assert say.startswith(f"Problems: {problem}.")
+
+
+async def test_a_full_status_the_cloud_does_not_give_says_what_to_do():
+    vacuum = Recorded()
+
+    async def nothing() -> dict:
+        return {"success": False, "error": "No response from device"}
+
+    vacuum.get_full_status = nothing  # type: ignore[method-assign]
+    answer = await Vacuum(Link(vacuum), settle=0).full_status()
+    assert answer == {"success": False, "say": "I can't reach the Dreame cloud right now. Try again in a minute."}
+
+
+async def test_the_pretend_vacuum_reports_how_far_its_clean_has_got():
+    now = [0.0]
+    pretend = SimulatedVacuum(clock=lambda: now[0])
+    vacuum = Vacuum(Link(pretend), simulated=True, settle=0)
+    await vacuum.start()
+    now[0] += 600
+    answer = await vacuum.full_status()
+    assert answer["progress"] == {"percent": 20, "square_metres": 10, "minutes": 10}
+
+
+async def test_the_pretend_vacuum_gives_no_full_status_before_it_is_logged_in():
+    assert (await SimulatedVacuum().get_full_status())["success"] is False

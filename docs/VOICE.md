@@ -52,6 +52,15 @@ mop pad 100, sensors 0 percent; auto-empty on, dust bag fitted. It can't
 report the water level or how full the bin is, and the L10s Plus base has no
 water tanks."
 
+While it cleans, how far it has got comes straight after what it is doing,
+and the room is the one its live map puts it in (a saved map names none):
+"It is cleaning, battery 92 percent; 30 percent done, 17 square metres in 17
+minutes; now in Kitchen; …". The cloud gives the share of the floor done,
+the square metres and the minutes, but not which rooms are done (the map has
+no flag for it, and no order on a full clean) or how long is left, so during
+a clean the last sentence says so too. It works out no time left from the
+pace either: that would be a guess, so none is said.
+
 That last sentence is always said. The cloud reports the water-flow setting
 but not how much water is in the tank, and how full the bin is only as a
 warning once it is full. It does answer for a base's clean and dirty water
