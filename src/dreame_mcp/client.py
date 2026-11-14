@@ -797,7 +797,8 @@ class DreameHomeClient:
             area_m2 = raw.get("4.3", 0) or 0  # CLEANED_AREA
 
             state_str = _STATE_MAP.get(state_code, f"state_{state_code}")
-            is_charging = charging_code in (1, 2)
+            # DreameVacuumChargingStatus: 1 charging, 2 not charging, 3 charged, 5 going back.
+            is_charging = charging_code == 1
             # States that put the robot to work on the floor, per DreameVacuumState
             # in the reference types.py. CHARGING(6) and BUILDING(11) are not
             # cleaning; SWEEPING_AND_MOPPING(12) is.
