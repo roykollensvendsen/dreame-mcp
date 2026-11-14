@@ -229,5 +229,17 @@ replace = 'opening = "No problems."'
 [[rule]]
 name = "a full status says what it cannot report"
 file = "src/dreame_mcp/voice.py"
-find = 'say = f"\{opening\} \{_sentence\(full\.words\(reading\)\)\} \{CANNOT_REPORT\}"'
-replace = 'say = f"{opening} {_sentence(full.words(reading))}"'
+find = 'say = f"\{opening\} \{_sentence\(words\)\} \{CANNOT_REPORT_CLEANING if reading\.cleaning else CANNOT_REPORT\}"'
+replace = 'say = f"{opening} {_sentence(words)}"'
+
+[[rule]]
+name = "a clean in progress says how far it has got"
+file = "src/dreame_mcp/voice.py"
+find = 'words\[1:1\] = _progress_words\(progress or \{\}, room\)'
+replace = 'pass'
+
+[[rule]]
+name = "a full status names the room only from the live map"
+file = "src/dreame_mcp/voice.py"
+find = 'return room\.get\("name"\) if m\.get\("source"\) == "live" else None'
+replace = 'return room.get("name")'

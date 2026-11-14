@@ -296,6 +296,9 @@ FULL_STATUS: tuple[tuple[int, int], ...] = (
     (2, 2),  # error code, 0 for none
     (3, 1),  # battery percent
     (3, 2),  # charging: 1 charging, 2 not, 3 charged, 5 going back to charge
+    (4, 2),  # this clean so far, minutes (read during a clean on 2026-11-14)
+    (4, 3),  # this clean so far, square metres
+    (4, 63),  # this clean, percent done
     (4, 5),  # water flow setting: 1 low, 2 medium, 3 high (not how much water is left)
     (4, 6),  # water tank: 0 out, 1 fitted, 10 fitted with the mop, 99 in the station
     (4, 35),  # warning code, 0 for none

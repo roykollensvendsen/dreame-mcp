@@ -445,6 +445,17 @@ async def test_a_command_that_takes_too_long_says_so(never_in_time):
     assert result["success"] is False and "timed out" in result["error"]
 
 
+async def test_a_full_status_that_takes_too_long_says_so(never_in_time):
+    result = await DreameHomeClient().get_full_status()
+    assert result["success"] is False and "timed out" in result["error"]
+
+
+async def test_a_full_status_is_read_in_the_clients_own_worker(monkeypatch):
+    c = DreameHomeClient()
+    monkeypatch.setattr(c, "_get_full_status_sync", lambda: {"success": True, "raw": {"4.6": 1}})
+    assert await c.get_full_status() == {"success": True, "raw": {"4.6": 1}}
+
+
 async def test_a_room_clean_that_takes_too_long_says_so(never_in_time):
     result = await DreameHomeClient().clean_rooms([1])
     assert result["success"] is False and "timed out" in result["error"]

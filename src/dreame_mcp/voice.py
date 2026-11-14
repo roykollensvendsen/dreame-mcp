@@ -268,6 +268,13 @@ DUE = 10
 #: What the cloud gives no reading for, said at the end of every full status.
 NOT_REPORTED = ("water level", "bin fill", "base water tanks")
 CANNOT_REPORT = "It can't report the water level or how full the bin is, and the L10s Plus base has no water tanks."
+#: During a clean the cloud also gives no rooms done (the map has no flag for it, and no order
+#: on a full clean) and no time left (no property answers with it); read on 2026-11-14.
+NOT_REPORTED_CLEANING = ("rooms done", "time left")
+CANNOT_REPORT_CLEANING = (
+    "It can't report which rooms are done or how long is left, the water level or how full the bin is,"
+    " and the L10s Plus base has no water tanks."
+)
 WATER_TANK = {0: "out", 1: "fitted", 10: "fitted", 99: "in the station"}
 WATER_FLOW = {1: "low", 2: "medium", 3: "high"}
 LOW_WATER = {1: "the water tank is empty", 2: "the water tank is empty", 3: "the water tank is empty",
@@ -361,19 +368,43 @@ class FullStatus:
         return [p for p in (*parts, ", ".join(base)) if p]
 
 
+#: How far a clean has got, in the order said: (field, unit words).
+PROGRESS = (("square_metres", "square metres"), ("minutes", "minutes"))
+
+
+def _progress(raw: dict[str, Any]) -> dict[str, int] | None:
+    """How far this clean has got, from what the robot reports; None when it reports none of it."""
+    got = {"percent": _num(raw, "4.63"), "square_metres": _num(raw, "4.3"), "minutes": _num(raw, "4.2")}
+    return {k: v for k, v in got.items() if v is not None} or None
+
+
+def _progress_words(progress: dict[str, int], room: str | None) -> list[str]:
+    """'40 percent done, 21 square metres in 25 minutes', then 'now in Room 2'."""
+    done = f"{progress['percent']} percent done" if "percent" in progress else ""
+    so_far = " in ".join(f"{progress[k]} {unit}" for k, unit in PROGRESS if k in progress)
+    words = [", ".join(w for w in (done, so_far) if w), f"now in {room}" if room else ""]
+    return [w for w in words if w]
+
+
 def _due(name: str, words: str) -> str:
     return "the sensors are due for cleaning" if name == "sensors" else f"the {words} is due for a change"
 
 
-def full_status(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-    """What a full status says, and its fields, from the robot's readings. A reading the
-    cloud left out is not guessed: it is left out of both."""
+def full_status(raw: dict[str, Any], room: str | None = None) -> tuple[str, dict[str, Any]]:
+    """What a full status says, and its fields, from the robot's readings and, during a
+    clean, the room the live map puts it in. A reading the cloud left out is not guessed:
+    it is left out of both."""
     full, reading = FullStatus.of(raw), Reading.of(DreameStatus(raw=raw))
     problems = full.problems()
+    words = full.words(reading)
+    progress = _progress(raw) if reading.cleaning else None
+    if progress or (reading.cleaning and room):
+        # RULE: a clean in progress says how far it has got
+        words[1:1] = _progress_words(progress or {}, room)
     # RULE: a full status says problems first
     opening = "Problems: " + "; ".join(problems) + "." if problems else "No problems."
     # RULE: a full status says what it cannot report
-    say = f"{opening} {_sentence(full.words(reading))} {CANNOT_REPORT}"
+    say = f"{opening} {_sentence(words)} {CANNOT_REPORT_CLEANING if reading.cleaning else CANNOT_REPORT}"
     fields: dict[str, Any] = {
         "problems": problems,
         "docked": reading.docked,
@@ -383,7 +414,9 @@ def full_status(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         "wear": full.wear,
         "auto_empty": full.auto_empty,
         "dust_bag": full.dust_bag,
-        "not_reported": list(NOT_REPORTED),
+        "not_reported": [*NOT_REPORTED, *(NOT_REPORTED_CLEANING if reading.cleaning else ())],
+        "progress": progress,
+        "room": room if reading.cleaning else None,
     }
     return say, fields
 
@@ -631,6 +664,16 @@ class Vacuum:
 
         return await self._guarded(act, sent=False)
 
+    async def _room_now(self, deadline: float) -> str | None:
+        """The room the live map puts it in, or None: a saved map, or none in time, names no room."""
+        try:
+            m = await self._map(deadline)
+        except Unavailable:
+            return None
+        room = m["map_data"].get("robot_room") or {}
+        # RULE: a full status names the room only from the live map
+        return room.get("name") if m.get("source") == "live" else None
+
     async def full_status(self) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
             client = await self.link.ready(deadline)
@@ -639,8 +682,9 @@ class Vacuum:
                 logger.warning("full status read failed: %s", got.get("error"))
                 self.link.mark_stale()
                 raise Unavailable(UNREACHABLE, TRY_AGAIN)
-            say, fields = full_status(got["raw"])
             reading = Reading.of(DreameStatus(raw=got["raw"]))
+            room = await self._room_now(deadline - 1.0) if reading.cleaning else None
+            say, fields = full_status(got["raw"], room)
             return self._answer(True, say, reading, **fields)
 
         return await self._guarded(act, sent=False)
