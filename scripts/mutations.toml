@@ -173,9 +173,9 @@ find = 'if written > now:'
 replace = 'if False:'
 
 [[rule]]
-name = "a kept wait ends at most the longest wait after the file was written"
+name = "a kept wait ends at most its own wait after the file was written"
 file = "src/dreame_mcp/login_wait.py"
-find = 'ends = min\(ends, written \+ LONGEST\)'
+find = 'ends = min\(ends, written \+ wait\)'
 replace = 'pass'
 
 [[rule]]
