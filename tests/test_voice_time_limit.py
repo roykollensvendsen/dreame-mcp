@@ -63,6 +63,10 @@ class Silent:
         await asyncio.Event().wait()
         return {}
 
+    async def get_full_status(self) -> dict:
+        await asyncio.Event().wait()
+        return {}
+
     def disconnect(self) -> None:
         pass
 

@@ -119,6 +119,7 @@ class VacuumClient(Protocol):
     async def control(self, cmd: str) -> dict: ...
     async def get_map(self) -> dict: ...
     async def clean_rooms(self, room_ids: list[int]) -> dict: ...
+    async def get_full_status(self) -> dict: ...
     def disconnect(self) -> None: ...
 
 
@@ -223,6 +224,168 @@ class Reading:
         if self.battery is not None:
             what += f", battery {self.battery} percent"
         return what
+
+
+# -- the full status ------------------------------------------------------------
+# Codes as the robot reports them (client.FULL_STATUS says where each comes from), in
+# words for 'say'. A code with no words here is said by its number.
+
+#: Error (2.2) and warning (4.35) codes, from the reference's DreameVacuumErrorCode.
+PROBLEMS: dict[int, str] = {
+    1: "a wheel has dropped",
+    2: "a cliff sensor is blocked",
+    3: "its bumper is stuck",
+    8: "the dust bin is out",
+    9: "the water tank is out",
+    10: "the water tank is empty",
+    11: "the dust bin is full",
+    12: "the main brush is tangled",
+    13: "the side brush is tangled",
+    20: "its battery is too low",
+    47: "it is blocked",
+    51: "the filter is blocked",
+    68: "the mop should come off",
+    80: "it is stuck",
+    81: "it is stuck",
+    101: "the dust bin is full",
+    102: "the dust bin is out",
+    103: "the dust bin is out",
+    104: "the dust bin is full",
+    105: "the water tank is out",
+    107: "the water tank is empty",
+    121: "the dust bag in the base is full",
+}
+#: Wear readings: (name in the answer, words, percent left at siid.piid, hours left at).
+PARTS = (
+    ("main_brush", "main brush", "9.2", "9.1"),
+    ("side_brush", "side brush", "10.2", "10.1"),
+    ("filter", "filter", "11.1", "11.2"),
+    ("mop_pad", "mop pad", "18.1", "18.2"),
+    ("sensors", "sensors", "16.1", "16.2"),
+)
+#: A part with this many percent left, or fewer, is due.
+DUE = 10
+#: What the cloud gives no reading for, said at the end of every full status.
+NOT_REPORTED = ("water level", "bin fill", "base water tanks")
+CANNOT_REPORT = "It can't report the water level or how full the bin is, and the L10s Plus base has no water tanks."
+WATER_TANK = {0: "out", 1: "fitted", 10: "fitted", 99: "in the station"}
+WATER_FLOW = {1: "low", 2: "medium", 3: "high"}
+LOW_WATER = {1: "the water tank is empty", 2: "the water tank is empty", 3: "the water tank is empty",
+             4: "the water tank is empty", 5: "the water tank is low", 6: "the water tank is out"}  # fmt: skip
+DUST_BAG = {0: "fitted", 1: "not fitted", 2: "to be checked"}
+
+
+def _num(raw: dict[str, Any], key: str) -> int | None:
+    try:
+        return int(raw[key])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _problem(code: int) -> str:
+    return PROBLEMS.get(code, f"error code {code}, which the DreameHome app explains")
+
+
+def _sentence(parts: list[str]) -> str:
+    return parts[0][0].upper() + parts[0][1:] + "".join(f"; {p}" for p in parts[1:]) + "."
+
+
+def _known(table: dict[int, str], code: int | None) -> str | None:
+    """A code's words, or None when the cloud left the reading out or has no words for it."""
+    return None if code is None else table.get(code)
+
+
+def _wear(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """Percent and hours left of each part the cloud reported."""
+    wear: dict[str, dict[str, int]] = {}
+    for name, _, percent_at, hours_at in PARTS:
+        percent = _num(raw, percent_at)
+        if percent is not None:
+            wear[name] = {"percent": percent, "hours": _num(raw, hours_at) or 0}
+    return wear
+
+
+@dataclass(frozen=True)
+class FullStatus:
+    """A full status read, in words; None for a reading the cloud left out, never a guess."""
+
+    raw: dict[str, Any]
+    water_tank: str | None
+    mop_pad: str | None
+    water_flow: str | None
+    auto_empty: bool | None
+    dust_bag: str | None
+    wear: dict[str, dict[str, int]]
+
+    @classmethod
+    def of(cls, raw: dict[str, Any]) -> FullStatus:
+        tank_code, mop, auto = _num(raw, "4.6"), _num(raw, "4.53"), _num(raw, "15.1")
+        # A tank reported as fitted with its mop (10) has the mop on, whatever 4.53 says.
+        with_mop = mop if mop is None or tank_code != 10 else 1
+        return cls(
+            raw=raw,
+            water_tank=_known(WATER_TANK, tank_code),
+            mop_pad=_known({0: "not attached", 1: "attached"}, with_mop),
+            water_flow=_known(WATER_FLOW, _num(raw, "4.5")),
+            auto_empty=None if auto is None else bool(auto),
+            dust_bag=_known(DUST_BAG, _num(raw, "27.3")),
+            wear=_wear(raw),
+        )
+
+    def problems(self) -> list[str]:
+        found = [_problem(code) for key in ("2.2", "4.35") if (code := _num(self.raw, key))]
+        # RULE: a missing water tank is a problem
+        if self.water_tank == "out":
+            found.append("the water tank is out")
+        found += [low] if (low := _known(LOW_WATER, _num(self.raw, "4.41"))) else []
+        if self.dust_bag in ("not fitted", "to be checked"):
+            found.append(f"the dust bag in the base is {self.dust_bag}")
+        if _num(self.raw, "15.5") == 2:
+            found.append("the base didn't empty the bin")
+        found += [_due(name, words) for name, words, _, _ in PARTS if self._worn(name)]
+        return list(dict.fromkeys(found))  # the same problem from two readings is said once
+
+    def _worn(self, name: str) -> bool:
+        percent = self.wear.get(name, {}).get("percent", 100)  # not reported: not due
+        # RULE: a part at ten percent or less is due
+        return percent <= DUE
+
+    def words(self, reading: Reading) -> list[str]:
+        robot = [f"{what} {value}" for what, value in
+                 (("water tank", self.water_tank), ("mop pad", self.mop_pad), ("water flow", self.water_flow)) if value]  # fmt: skip
+        base = [] if self.auto_empty is None else ["auto-empty " + ("on" if self.auto_empty else "off")]
+        base += [f"dust bag {self.dust_bag}"] if self.dust_bag else []
+        worn = [f"{words} {self.wear[name]['percent']}" for name, words, _, _ in PARTS if name in self.wear]
+        parts = [f"it is {reading.words()}", ", ".join(robot)]
+        parts += ["left: " + ", ".join(worn) + " percent"] if worn else []
+        return [p for p in (*parts, ", ".join(base)) if p]
+
+
+def _due(name: str, words: str) -> str:
+    return "the sensors are due for cleaning" if name == "sensors" else f"the {words} is due for a change"
+
+
+def full_status(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """What a full status says, and its fields, from the robot's readings. A reading the
+    cloud left out is not guessed: it is left out of both."""
+    full, reading = FullStatus.of(raw), Reading.of(DreameStatus(raw=raw))
+    problems = full.problems()
+    # RULE: a full status says problems first
+    opening = "Problems: " + "; ".join(problems) + "." if problems else "No problems."
+    # RULE: a full status says what it cannot report
+    say = f"{opening} {_sentence(full.words(reading))} {CANNOT_REPORT}"
+    fields: dict[str, Any] = {
+        "problems": problems,
+        "docked": reading.docked,
+        "water_tank": full.water_tank,
+        "mop_pad": full.mop_pad,
+        "water_flow": full.water_flow,
+        "wear": full.wear,
+        "auto_empty": full.auto_empty,
+        "dust_bag": full.dust_bag,
+        "not_reported": list(NOT_REPORTED),
+    }
+    return say, fields
 
 
 def _login_problem(cloud_error: str | None) -> tuple[str, str]:
@@ -465,6 +628,20 @@ class Vacuum:
         async def act(deadline: float) -> dict[str, Any]:
             r = await self._read(deadline)
             return self._answer(True, f"The vacuum is {r.words()}.", r)
+
+        return await self._guarded(act, sent=False)
+
+    async def full_status(self) -> dict[str, Any]:
+        async def act(deadline: float) -> dict[str, Any]:
+            client = await self.link.ready(deadline)
+            got = await self._within(deadline, client.get_full_status())
+            if not got.get("success") or not got.get("raw"):
+                logger.warning("full status read failed: %s", got.get("error"))
+                self.link.mark_stale()
+                raise Unavailable(UNREACHABLE, TRY_AGAIN)
+            say, fields = full_status(got["raw"])
+            reading = Reading.of(DreameStatus(raw=got["raw"]))
+            return self._answer(True, say, reading, **fields)
 
         return await self._guarded(act, sent=False)
 
@@ -717,6 +894,16 @@ def build_server(vacuum: Vacuum) -> FastMCP:
         What the vacuum is doing and how full its battery is.
         """
         return await vacuum.status()
+
+    @mcp.tool(annotations=read_only)
+    async def vacuum_full_status() -> dict[str, Any]:
+        """Everything it can report.
+
+        Problems first (errors, warnings, a missing water tank, worn parts), then the water
+        tank, mop pad, wear of brushes, filter and mop, and the base; and what it can't
+        report. Only when the user asks for the full status; vacuum_status is the short one.
+        """
+        return await vacuum.full_status()
 
     start_doc = (
         "Ask, then clean it all.\n\n"

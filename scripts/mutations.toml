@@ -207,3 +207,27 @@ name = "a rate-limited login waits a few minutes"
 file = "src/dreame_mcp/login_wait.py"
 find = '"rate-limited": 300\.0,'
 replace = '"rate-limited": 60.0,'
+
+[[rule]]
+name = "a missing water tank is a problem"
+file = "src/dreame_mcp/voice.py"
+find = 'if self.water_tank == "out":'
+replace = 'if False:'
+
+[[rule]]
+name = "a part at ten percent or less is due"
+file = "src/dreame_mcp/voice.py"
+find = 'return percent <= DUE'
+replace = 'return percent < DUE'
+
+[[rule]]
+name = "a full status says problems first"
+file = "src/dreame_mcp/voice.py"
+find = 'opening = "Problems: " \+ "; "\.join\(problems\) \+ "\." if problems else "No problems\."'
+replace = 'opening = "No problems."'
+
+[[rule]]
+name = "a full status says what it cannot report"
+file = "src/dreame_mcp/voice.py"
+find = 'say = f"\{opening\} \{_sentence\(full\.words\(reading\)\)\} \{CANNOT_REPORT\}"'
+replace = 'say = f"{opening} {_sentence(full.words(reading))}"'

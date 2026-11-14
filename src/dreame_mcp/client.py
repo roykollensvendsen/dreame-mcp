@@ -288,6 +288,37 @@ _ACTION_MAP = {
 _SEGMENT_CLEANING = 18
 
 
+#: What a full status reads, as (siid, piid). The numbers are the MIoT spec's for a Dreame
+#: vacuum, the meanings the reference's names for them; checked against Roy's L10s Plus
+#: (dreame.vacuum.r2363a) on 2026-11-14, which answered every one.
+FULL_STATUS: tuple[tuple[int, int], ...] = (
+    (2, 1),  # state
+    (2, 2),  # error code, 0 for none
+    (3, 1),  # battery percent
+    (3, 2),  # charging: 1 charging, 2 not, 3 charged, 5 going back to charge
+    (4, 5),  # water flow setting: 1 low, 2 medium, 3 high (not how much water is left)
+    (4, 6),  # water tank: 0 out, 1 fitted, 10 fitted with the mop, 99 in the station
+    (4, 35),  # warning code, 0 for none
+    (4, 41),  # low water: 0 none, 1-4 no water left, 5 low, 6 tank not fitted
+    (4, 53),  # mop pad attached: 0 or 1
+    (9, 1),  # main brush, hours left
+    (9, 2),  # main brush, percent left
+    (10, 1),  # side brush, hours left
+    (10, 2),  # side brush, percent left
+    (11, 1),  # filter, percent left
+    (11, 2),  # filter, hours left
+    (16, 1),  # sensors, percent left until they want cleaning
+    (16, 2),  # sensors, hours left
+    (18, 1),  # mop pad, percent left
+    (18, 2),  # mop pad, hours left
+    (15, 1),  # auto-empty after a clean: 0 off, 1 on
+    (15, 5),  # auto-empty now: 0 idle, 1 emptying, 2 not done
+    (27, 3),  # dust bag in the base: 0 fitted, 1 not fitted, 2 check it
+)
+#: The most properties one get_properties asked for on 2026-11-14.
+FULL_STATUS_CHUNK = 10
+
+
 def _pick_cloud_device(devices: list, want_ip: str | None) -> dict | None:
     """Select one device from get_devices() for map/DID. Avoid wrong-robot `devices[0]`."""
     if not devices:
@@ -495,6 +526,18 @@ class DreameHomeClient:
         except TimeoutError:
             logger.error("get_status() timed out after %ds", EXECUTOR_TIMEOUT)
             return DreameStatus(error=f"Status request timed out ({EXECUTOR_TIMEOUT}s)")
+
+    async def get_full_status(self) -> dict:
+        """Read everything in FULL_STATUS: {"success", "raw": {"siid.piid": value}} or an error."""
+        loop = asyncio.get_event_loop()
+        try:
+            return await asyncio.wait_for(
+                loop.run_in_executor(self._executor, self._get_full_status_sync),
+                timeout=EXECUTOR_TIMEOUT,
+            )
+        except TimeoutError:
+            logger.error("get_full_status() timed out after %ds", EXECUTOR_TIMEOUT)
+            return {"success": False, "error": f"Full status timed out ({EXECUTOR_TIMEOUT}s)"}
 
     async def control(self, cmd: str) -> dict:
         """Send control command via Tasshack protocol. Timeout-guarded."""
@@ -768,6 +811,24 @@ class DreameHomeClient:
         except Exception as e:
             logger.exception("get_status failed")
             return DreameStatus(error=str(e))
+
+    def _get_full_status_sync(self) -> dict:
+        """Read only (get_properties), a few properties at a time. A property the cloud
+        has no value for is left out rather than guessed."""
+        if not self._protocol:
+            return {"success": False, "error": "Not connected"}
+        raw: dict[str, Any] = {}
+        for start in range(0, len(FULL_STATUS), FULL_STATUS_CHUNK):
+            chunk = FULL_STATUS[start : start + FULL_STATUS_CHUNK]
+            dids = _miot_did_slots(len(chunk), str(self._did) if self._did else None)
+            props = [{"did": d, "siid": siid, "piid": piid} for (siid, piid), d in zip(chunk, dids, strict=True)]
+            result = self._safe_call("send", "get_properties", props)
+            if result is None:
+                return {"success": False, "error": "No response from device"}
+            for r in result:
+                if r.get("code", 0) == 0 and "value" in r:
+                    raw[f"{r['siid']}.{r['piid']}"] = r["value"]
+        return {"success": True, "raw": raw}
 
     def _control_sync(self, cmd: str) -> dict:
         if not self._protocol:
