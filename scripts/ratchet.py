@@ -230,23 +230,25 @@ def _run(*command: str, env: dict[str, str] | None = None, cwd: Path | None = No
     The wait after that Ctrl-C has no time limit, on purpose (these runs are never cut
     short), and a second stop is ignored meanwhile. Should the command hang there, kill -9
     is the way out, for its process group too (kill -9 -- -<its pid>); the next mutation
-    run then puts its line back and sweeps its folder."""
-    with subprocess.Popen(
-        command,
-        cwd=cwd or ROOT,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    ) as child:
-        try:
-            out, err = child.communicate()
-        except BaseException:
-            child.send_signal(signal.SIGINT)
-            child.communicate()
-            raise
-    return subprocess.CompletedProcess(command, child.returncode, out, err)
+    run then puts its line back and sweeps its folder.
+
+    What the command writes goes to files, not pipes: a pipe would break when this run is
+    killed with -9 alone, and the command would die at its next line of output, before it
+    could put anything back. The files have no name, so they go with the last process that
+    holds them, even after kill -9."""
+    with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+        with subprocess.Popen(
+            command, cwd=cwd or ROOT, env=env, stdout=out, stderr=err, text=True, start_new_session=True
+        ) as child:
+            try:
+                child.wait()
+            except BaseException:
+                child.send_signal(signal.SIGINT)
+                child.wait()
+                raise
+        out.seek(0)
+        err.seek(0)
+        return subprocess.CompletedProcess(command, child.returncode, out.read(), err.read())
 
 
 #: How the suite is run: through uv, so it runs in the project's own environment.
