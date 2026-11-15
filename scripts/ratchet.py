@@ -236,7 +236,9 @@ def _run(*command: str, env: dict[str, str] | None = None, cwd: Path | None = No
     remove its files; subprocess.run would kill it outright and leave both.
 
     The command runs in its own session, so a terminal's Ctrl-C reaches it only through this
-    run, and once: a second Ctrl-C would make pytest cut its own cleanup short.
+    run, and once: a second Ctrl-C would make pytest cut its own cleanup short. That Ctrl-C
+    goes to the command alone, not to its whole process group: the command is uv, and uv
+    passes a Ctrl-C on to its own child, so one sent to the group would reach that child twice.
 
     The wait after that Ctrl-C has no time limit, on purpose (these runs are never cut
     short), and a second stop is ignored meanwhile. Should the command hang there, kill -9
