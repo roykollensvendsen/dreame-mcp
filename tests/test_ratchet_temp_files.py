@@ -109,8 +109,12 @@ spec = importlib.util.spec_from_file_location("ratchet", sys.argv[1])
 ratchet = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ratchet)
 ratchet.stop_cleanly()
-ratchet._run(sys.executable, "-c", sys.argv[2])
+ratchet._run(*sys.argv[3:], "-c", sys.argv[2])
 """
+
+#: How the stand-in starts its child: straight, or through uv, as the ratchet starts its own.
+STRAIGHT = (sys.executable,)
+THROUGH_UV = ("uv", "run", "--no-project", "python")
 
 #: Stands in for the mutation run: says it is going, and on Ctrl-C puts its line back. Every
 #: Ctrl-C it gets is counted: a second one would make pytest cut its own cleanup short.
@@ -128,12 +132,12 @@ time.sleep(120)
 """
 
 
-def _stop_while_child_runs(tmp_path, stop):
+def _stop_while_child_runs(tmp_path, stop, starts=STRAIGHT):
     marks = tmp_path / "marks"
     marks.mkdir()
     child = CHILD.replace("{marks!r}", repr(str(marks)))
     stand_in = subprocess.Popen(
-        [sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child],
+        [sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child, *starts],
         start_new_session=True,  # its own process group, as a terminal gives a command
     )
     try:
@@ -162,6 +166,21 @@ def test_ctrl_c_in_a_terminal_reaches_the_ratchets_child_once(tmp_path):
     assert (marks / "put-back").read_text() == "x"  # once, not twice
 
 
+@pytest.mark.parametrize("stop", [signal.SIGTERM, signal.SIGINT], ids=["kill", "ctrl-c"])
+def test_a_stopped_ratchet_tells_the_python_under_uv_once(tmp_path, stop):
+    # The ratchet starts its runs through uv, and uv passes a Ctrl-C on to its own child.
+    # Sent to uv's whole process group instead, it would reach that child twice.
+    def send(stand_in):
+        if stop == signal.SIGINT:
+            os.killpg(stand_in.pid, stop)  # a terminal's Ctrl-C, to the ratchet's group
+        else:
+            stand_in.send_signal(stop)
+
+    code, marks = _stop_while_child_runs(tmp_path, send, THROUGH_UV)
+    assert code != 0
+    assert (marks / "put-back").read_text() == "x"  # once, not twice
+
+
 #: Stands in for a suite the ratchet runs: says it is going, waits until the ratchet is gone,
 #: then writes a lot, as pytest's summary does, and only then marks itself finished.
 OUTLIVES = """
@@ -182,7 +201,7 @@ def test_a_child_outlives_a_ratchet_killed_with_kill_9_and_leaves_no_file(tmp_pa
     marks = tmp_path / "marks"
     marks.mkdir()
     child = OUTLIVES.replace("{marks!r}", repr(str(marks)))
-    stand_in = subprocess.Popen([sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child])
+    stand_in = subprocess.Popen([sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child, *STRAIGHT])
     pid = None
     try:
         for _ in range(600):
