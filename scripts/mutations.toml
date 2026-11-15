@@ -285,3 +285,9 @@ name = "a run trusts its folder only when it is really ours"
 file = "scripts/mutate.py"
 find = '^\s+_check_ours\(fd\)$'
 replace = 'pass'
+
+[[rule]]
+name = "only one mutation run goes at a time in a checkout"
+file = "scripts/mutate.py"
+find = '^\s+checkout = only_run\(\)$'
+replace = 'checkout = os.open(RECOVERY.parent, os.O_RDONLY)'

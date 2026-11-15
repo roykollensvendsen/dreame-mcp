@@ -11,6 +11,11 @@ Run it from anywhere:
 
     uv run python scripts/mutate.py
 
+A run stopped with SIGTERM, SIGHUP or Ctrl-C puts its line back itself. After one was
+killed outright (kill -9), the next run puts it back first; to do only that:
+
+    uv run python scripts/mutate.py --repair-only
+
 It exits 1 when a rule survives, is caught only by other tests, or when a file
 changed while it was mutated (that file is then left as it is).
 """
@@ -253,15 +258,40 @@ def stop_cleanly() -> None:
         signal.signal(each, _stop)
 
 
-def main() -> int:
+def only_run() -> int:
+    """Lock this checkout for the whole run, without waiting, and give back the open folder
+    that holds the lock until the process ends. Two runs in one checkout take each other's
+    mutated line for the original and leave the source mutated (it happened on 2026-11-15),
+    so a second one stops before it touches anything: the first run's recovery file above all."""
+    fd = os.open(RECOVERY.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise SystemExit(
+            f"A mutation run is already going in {ROOT}. Wait for it to end, or stop it, and run again."
+        ) from None
+    return fd
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = argv or []
     # RULE: a stopped run still cleans up
     stop_cleanly()
+    # RULE: only one mutation run goes at a time in a checkout
+    checkout = only_run()
     try:
+        if args == ["--repair-only"]:
+            repair()  # under the lock, so never the line of a run still going
+            return 0
+        if args:
+            raise SystemExit(f"usage: {Path(__file__).name} [--repair-only]")
         return _run_rules()
     finally:
         with guarded():
             # RULE: a finished run leaves not even its empty folder
             quiet_rmdir(MUTATE_TMP)
+        os.close(checkout)
 
 
 def quiet_rmdir(folder: Path) -> None:
@@ -321,4 +351,4 @@ def _run_rules() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

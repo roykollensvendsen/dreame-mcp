@@ -117,3 +117,27 @@ def test_a_second_stop_does_not_cut_the_cleanup_short(tmp_path):
     child.send_signal(signal.SIGTERM)
     _cleaned_up(child, project, temp)
     assert child.returncode != 0
+
+
+def test_only_one_mutation_run_goes_at_a_time_in_a_checkout(tmp_path):
+    # Two runs in one checkout take each other's mutated line for the original and leave the
+    # source mutated (it happened on 2026-11-15). The second must stop before it touches
+    # anything, the recovery file of the first above all.
+    first, project, marks, temp = _start(tmp_path)
+    try:
+        mutated = (project / "answer.py").read_text()
+        second = subprocess.run(
+            [sys.executable, str(tmp_path / "runner.py"), str(ROOT / "scripts" / "mutate.py"), str(project), str(temp)],
+            env={**os.environ, "MARKS": str(marks)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert second.returncode != 0
+        assert "already going" in second.stdout + second.stderr
+        assert (project / "answer.py").read_text() == mutated  # the first run's mutation, untouched
+        assert (project / "recovery.json").exists()  # and its way back
+        first.send_signal(signal.SIGTERM)
+    finally:
+        _cleaned_up(first, project, temp)
