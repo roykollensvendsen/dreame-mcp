@@ -18,6 +18,7 @@ changed while it was mutated (that file is then left as it is).
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -99,10 +101,67 @@ def remove(folder: Path) -> None:
     shutil.rmtree(folder, onexc=_again)
 
 
+def _same(fd: int, path: Path) -> bool:
+    """Whether the folder open as ``fd`` is still the one at ``path``."""
+    try:
+        now = os.lstat(path)
+    except FileNotFoundError:
+        return False
+    held = os.fstat(fd)
+    return (now.st_dev, now.st_ino) == (held.st_dev, held.st_ino)
+
+
+@contextlib.contextmanager
+def guarded() -> Iterator[None]:
+    """Hold MUTATE_TMP's own lock. Run folders are made, swept and the folder itself removed
+    only while it is held, so a sweep never sees a run's folder before the run has locked it.
+    A run that waited while another removed the folder makes it again and waits once more."""
+    while True:
+        MUTATE_TMP.mkdir(mode=0o700, exist_ok=True)
+        fd = os.open(MUTATE_TMP, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            if _same(fd, MUTATE_TMP):
+                yield
+                return
+        finally:
+            os.close(fd)
+
+
+def held(folder: Path) -> bool:
+    """Whether a run still going holds this folder's lock. Only opens, never creates, and
+    never follows a link; what cannot be opened as a folder is no run's."""
+    try:
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    finally:
+        os.close(fd)
+    return False
+
+
+def new_run() -> tuple[Path, int]:
+    """A folder for one suite run, and the open folder whose lock the run holds until it
+    has removed it."""
+    with guarded():
+        run = Path(tempfile.mkdtemp(prefix="run-", dir=MUTATE_TMP))
+        fd = os.open(run, os.O_RDONLY | os.O_DIRECTORY)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    return run, fd
+
+
 def sweep() -> None:
-    """Remove what killed runs left in MUTATE_TMP."""
-    if MUTATE_TMP.is_dir():
+    """Remove what killed runs left in MUTATE_TMP, and only that: another run of this
+    checkout may be going at the same time."""
+    with guarded():
         for left in MUTATE_TMP.iterdir():
+            # RULE: a sweep leaves the folder of a run still going alone
+            if held(left):
+                continue
             remove(left)
 
 
@@ -111,8 +170,7 @@ def failing_tests() -> list[str]:
     # Without bytecode, a mutation never runs from the previous one's cache
     # (the cache is checked by size and a one-second timestamp).
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-    MUTATE_TMP.mkdir(mode=0o700, exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="run-", dir=MUTATE_TMP))
+    run, lock = new_run()
     try:
         done = subprocess.run(
             [
@@ -135,6 +193,7 @@ def failing_tests() -> list[str]:
     finally:
         # RULE: a suite run leaves no temporary files behind
         remove(run)
+        os.close(lock)
     return [m.split("[")[0] for m in re.findall(r"^(?:FAILED|ERROR) \S+::(\S+)", done.stdout, re.MULTILINE)]
 
 
@@ -150,19 +209,35 @@ def repair() -> None:
     RECOVERY.unlink()
 
 
+#: What stops a run: Ctrl-C, kill or a cancelled CI job, and a closed terminal.
+STOPS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+def _stop(number: int, _frame: object) -> None:
+    for each in STOPS:
+        # RULE: a second stop does not cut the cleanup short
+        signal.signal(each, signal.SIG_IGN)
+    if number == signal.SIGINT:
+        raise KeyboardInterrupt
+    raise SystemExit(128 + number)
+
+
 def stop_cleanly() -> None:
-    """Let SIGTERM (a cancelled CI job, kill) stop a run the way Ctrl-C does, so the finally
-    blocks put the mutated line back and remove the run's temporary files."""
-    signal.signal(signal.SIGTERM, lambda number, _frame: sys.exit(128 + number))
+    """Let any stop end a run the way Ctrl-C does, so the finally blocks put the mutated line
+    back and remove the run's temporary files; once stopping, further stops are ignored."""
+    for each in STOPS:
+        signal.signal(each, _stop)
 
 
 def main() -> int:
+    # RULE: a stopped run still cleans up
     stop_cleanly()
     try:
         return _run_rules()
     finally:
-        # RULE: a finished run leaves not even its empty folder
-        quiet_rmdir(MUTATE_TMP)
+        with guarded():
+            # RULE: a finished run leaves not even its empty folder
+            quiet_rmdir(MUTATE_TMP)
 
 
 def quiet_rmdir(folder: Path) -> None:

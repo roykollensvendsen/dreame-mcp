@@ -219,8 +219,20 @@ def mutation_tally(output: str, returncode: int) -> dict[str, int]:
     return {"killed": killed if returncode == 0 else min(killed, total - 1), "total": total}
 
 
-def _run(*command: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
+def _run(*command: str, env: dict[str, str] | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run a command and wait for it. When this run is stopped meanwhile, the command gets
+    Ctrl-C and is waited for, so the mutation run can put its line back and the suite can
+    remove its files; subprocess.run would kill it outright and leave both."""
+    with subprocess.Popen(
+        command, cwd=cwd or ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    ) as child:
+        try:
+            out, err = child.communicate()
+        except BaseException:
+            child.send_signal(signal.SIGINT)
+            child.communicate()
+            raise
+    return subprocess.CompletedProcess(command, child.returncode, out, err)
 
 
 #: How the suite is run: through uv, so it runs in the project's own environment.
@@ -296,13 +308,14 @@ def measure_at(ref: str) -> dict[str, Any] | None:
         if subprocess.run(["git", "worktree", "add", "--detach", str(copy), ref], cwd=ROOT, check=False).returncode:
             return None
         try:
-            done = subprocess.run(
-                [sys.executable, str(Path(__file__).resolve()), "measure", "--out", str(Path(tmp) / "levels.json")],
+            done = _run(
+                sys.executable,
+                str(Path(__file__).resolve()),
+                "measure",
+                "--out",
+                str(Path(tmp) / "levels.json"),
                 cwd=copy,
                 env={**os.environ, "RATCHET_ROOT": str(copy)},
-                capture_output=True,
-                text=True,
-                check=False,
             )
             if done.returncode:
                 sys.stderr.write(done.stdout[-1000:] + done.stderr[-1000:])
@@ -368,10 +381,23 @@ def write_levels(path: Path, now: dict[str, Any]) -> None:
 # -- the command line -----------------------------------------------------------
 
 
+#: What stops a run: Ctrl-C, kill or a cancelled CI job, and a closed terminal.
+STOPS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+def _stop(number: int, _frame: object) -> None:
+    for each in STOPS:  # once stopping, a second stop cannot cut the cleanup short
+        signal.signal(each, signal.SIG_IGN)
+    if number == signal.SIGINT:
+        raise KeyboardInterrupt
+    raise SystemExit(128 + number)
+
+
 def stop_cleanly() -> None:
-    """Let SIGTERM (a cancelled CI job, kill) stop a run the way Ctrl-C does, so its finally
-    blocks and temporary folders are cleaned up instead of left in /tmp."""
-    signal.signal(signal.SIGTERM, lambda number, _frame: sys.exit(128 + number))
+    """Let any stop end a run the way Ctrl-C does, so its finally blocks and temporary
+    folders are cleaned up instead of left in /tmp."""
+    for each in STOPS:
+        signal.signal(each, _stop)
 
 
 def main() -> int:

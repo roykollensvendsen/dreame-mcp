@@ -11,9 +11,11 @@ from __future__ import annotations
 import importlib.util
 import os
 import signal
+import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -81,14 +83,61 @@ def _open_all(folder: Path) -> None:
 
 
 @pytest.mark.parametrize("script", [ratchet, mutate], ids=["ratchet", "mutate"])
-def test_a_stopped_run_cleans_up_like_an_interrupted_one(script):
-    # A run stopped with SIGTERM (a CI job cancelled, kill) runs its finally blocks and
-    # removes its temporary folders, as Ctrl-C already did.
-    before = signal.getsignal(signal.SIGTERM)
+def test_any_stop_ends_a_run_the_way_ctrl_c_does(script):
+    # A stop (Ctrl-C, kill, a cancelled CI job, a closed terminal) runs the finally blocks;
+    # once stopping, the others are ignored, so a second one cannot cut them short.
+    stops = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    before = {each: signal.getsignal(each) for each in stops}
     try:
         script.stop_cleanly()
         with pytest.raises(SystemExit) as stopped:
             os.kill(os.getpid(), signal.SIGTERM)  # Python runs the handler straight after
         assert stopped.value.code == 128 + signal.SIGTERM
+        assert all(signal.getsignal(each) == signal.SIG_IGN for each in stops)
+        script.stop_cleanly()
+        with pytest.raises(KeyboardInterrupt):
+            os.kill(os.getpid(), signal.SIGINT)
     finally:
-        signal.signal(signal.SIGTERM, before)
+        for each, handler in before.items():
+            signal.signal(each, handler)
+
+
+#: Stands in for the ratchet: runs a command through its _run, and can be stopped.
+RATCHET = """
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("ratchet", sys.argv[1])
+ratchet = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ratchet)
+ratchet.stop_cleanly()
+ratchet._run(sys.executable, "-c", sys.argv[2])
+"""
+
+#: Stands in for the mutation run: says it is going, and on Ctrl-C puts its line back.
+CHILD = """
+import pathlib, signal, sys, time
+marks = pathlib.Path({marks!r})
+def put_back(*_):
+    (marks / "put-back").touch()
+    sys.exit(130)
+signal.signal(signal.SIGINT, put_back)
+(marks / "going").touch()
+time.sleep(120)
+"""
+
+
+def test_a_stopped_ratchet_lets_its_mutation_run_put_its_line_back(tmp_path):
+    marks = tmp_path / "marks"
+    marks.mkdir()
+    child = CHILD.replace("{marks!r}", repr(str(marks)))
+    stand_in = subprocess.Popen([sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child])
+    try:
+        for _ in range(600):
+            if (marks / "going").exists():
+                break
+            time.sleep(0.05)
+        stand_in.send_signal(signal.SIGTERM)  # the ratchet alone, as kill or CI would
+        assert stand_in.wait(timeout=60) == 128 + signal.SIGTERM
+    finally:
+        if stand_in.poll() is None:
+            stand_in.kill()
+    assert (marks / "put-back").exists()  # it was told with Ctrl-C, not killed outright

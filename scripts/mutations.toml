@@ -261,3 +261,21 @@ name = "a finished run leaves not even its empty folder"
 file = "scripts/mutate.py"
 find = '^\s+quiet_rmdir\(MUTATE_TMP\)$'
 replace = 'pass'
+
+[[rule]]
+name = "a sweep leaves the folder of a run still going alone"
+file = "scripts/mutate.py"
+find = '^\s+if held\(left\):$'
+replace = 'if False:'
+
+[[rule]]
+name = "a second stop does not cut the cleanup short"
+file = "scripts/mutate.py"
+find = '^\s+signal\.signal\(each, signal\.SIG_IGN\)$'
+replace = 'pass'
+
+[[rule]]
+name = "a stopped run still cleans up"
+file = "scripts/mutate.py"
+find = '^\s+stop_cleanly\(\)$'
+replace = 'pass'
