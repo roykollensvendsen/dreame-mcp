@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import os
+import signal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -43,6 +44,18 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "live" in item.keywords:
             item.add_marker(skip_live)
+
+
+@pytest.fixture(autouse=True)
+def _stop_handlers_put_back():
+    """A test that runs scripts/mutate.py's main() or a script's stop_cleanly() sets their
+    stop handlers in pytest's own process. Put Python's back after each test, so no later
+    test runs with them (see tests/test_stop_handlers.py)."""
+    stops = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    before = {each: signal.getsignal(each) for each in stops}
+    yield
+    for each, handler in before.items():
+        signal.signal(each, handler)
 
 
 @pytest.fixture(autouse=True)
