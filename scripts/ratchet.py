@@ -222,9 +222,23 @@ def mutation_tally(output: str, returncode: int) -> dict[str, int]:
 def _run(*command: str, env: dict[str, str] | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a command and wait for it. When this run is stopped meanwhile, the command gets
     Ctrl-C and is waited for, so the mutation run can put its line back and the suite can
-    remove its files; subprocess.run would kill it outright and leave both."""
+    remove its files; subprocess.run would kill it outright and leave both.
+
+    The command runs in its own session, so a terminal's Ctrl-C reaches it only through this
+    run, and once: a second Ctrl-C would make pytest cut its own cleanup short.
+
+    The wait after that Ctrl-C has no time limit, on purpose (these runs are never cut
+    short), and a second stop is ignored meanwhile. Should the command hang there, kill -9
+    is the way out, for its process group too (kill -9 -- -<its pid>); the next mutation
+    run then puts its line back and sweeps its folder."""
     with subprocess.Popen(
-        command, cwd=cwd or ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        command,
+        cwd=cwd or ROOT,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
     ) as child:
         try:
             out, err = child.communicate()

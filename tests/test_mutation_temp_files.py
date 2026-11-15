@@ -78,6 +78,7 @@ def test_a_suite_run_leaves_no_temporary_files_behind(project):
 
 
 def test_temporary_files_a_killed_run_left_are_swept_at_the_next_start(project, monkeypatch, capsys):
+    mutate.MUTATE_TMP.mkdir(mode=0o700)  # as a run makes it
     left = mutate.MUTATE_TMP / "run-killed"
     (left / "locked").mkdir(parents=True)
     (left / "out").symlink_to(project, target_is_directory=True)
@@ -146,6 +147,7 @@ time.sleep(120)
 
 
 def test_a_sweep_leaves_the_folder_of_a_run_still_going_alone(project, tmp_path):
+    mutate.MUTATE_TMP.mkdir(mode=0o700)  # as a run makes it
     going, ready = mutate.MUTATE_TMP / "run-going", tmp_path / "ready"
     (going / "pytest").mkdir(parents=True)
     other = subprocess.Popen([sys.executable, "-c", HOLDS_A_RUN, str(going), str(ready)])
@@ -182,3 +184,41 @@ def test_a_run_folder_is_locked_before_anyone_can_see_it(project, monkeypatch):
         os.close(lock)
     assert not mutate.held(run)
     mutate.remove(run)
+
+
+def test_a_run_trusts_its_folder_only_when_it_is_really_ours(project, tmp_path, monkeypatch):
+    # MUTATE_TMP has a name anyone can guess in a /tmp everyone shares. Whatever is planted
+    # there first must stop the run, not steer what the sweep removes.
+    target = tmp_path / "someone-elses"
+    (target / "precious").mkdir(parents=True)
+    mutate.MUTATE_TMP.symlink_to(target, target_is_directory=True)
+    with pytest.raises(SystemExit, match="is not a folder of yours"):
+        mutate.sweep()
+    assert (target / "precious").is_dir()  # nothing removed through the link
+    mutate.MUTATE_TMP.unlink()
+
+    mutate.MUTATE_TMP.mkdir(mode=0o755)  # others may enter, so others may have put things in it
+    mutate.MUTATE_TMP.chmod(0o755)
+    with pytest.raises(SystemExit, match="others may"):
+        mutate.sweep()
+    mutate.MUTATE_TMP.chmod(0o700)
+
+    other = os.getuid() + 1
+    monkeypatch.setattr(mutate.os, "getuid", lambda: other)  # as if made by another
+    with pytest.raises(SystemExit, match="is not a folder of yours"):
+        mutate.sweep()
+    monkeypatch.undo()
+    mutate.sweep()  # really ours: fine
+
+
+def test_a_sweep_removes_what_no_run_can_hold(project):
+    # A file, a link and a folder no one may open are no run's: they go, the link without
+    # its target.
+    mutate.MUTATE_TMP.mkdir(mode=0o700)
+    (mutate.MUTATE_TMP / "stray-file").write_text("x")
+    (mutate.MUTATE_TMP / "link").symlink_to(project, target_is_directory=True)
+    (mutate.MUTATE_TMP / "closed").mkdir()
+    (mutate.MUTATE_TMP / "closed").chmod(0)
+    mutate.sweep()
+    assert list(mutate.MUTATE_TMP.iterdir()) == []
+    assert (project / "theirs").is_dir()
