@@ -219,6 +219,17 @@ def mutation_tally(output: str, returncode: int) -> dict[str, int]:
     return {"killed": killed if returncode == 0 else min(killed, total - 1), "total": total}
 
 
+def mutation_levels(run: subprocess.CompletedProcess[str]) -> dict[str, int]:
+    """The tally of a mutation run. One that failed before giving a tally (another run already
+    going in this checkout, say) stops the ratchet with its own words: read as a tally, it
+    would look like a measure that got worse."""
+    if run.returncode and not TALLY.search(run.stdout):
+        raise SystemExit(
+            "The mutation run gave no tally, so it was not measured:\n" + (run.stderr or run.stdout)[-2000:]
+        )
+    return mutation_tally(run.stdout, run.returncode)
+
+
 def _run(*command: str, env: dict[str, str] | None = None, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run a command and wait for it. When this run is stopped meanwhile, the command gets
     Ctrl-C and is waited for, so the mutation run can put its line back and the suite can
@@ -302,7 +313,7 @@ def measure(*, skip_mutation: bool = False, recorded: dict[str, Any] | None = No
         mutation = recorded["mutation"]
     else:
         mutate = _run("uv", "run", "python", "scripts/mutate.py")
-        mutation = mutation_tally(mutate.stdout, mutate.returncode)
+        mutation = mutation_levels(mutate)
     return {
         "coverage": coverage,
         "mutation": mutation,

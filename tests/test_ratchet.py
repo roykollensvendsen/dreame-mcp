@@ -9,9 +9,15 @@ and refuses a change that makes one worse than the base, unless the pull request
 
 from __future__ import annotations
 
+import fcntl
 import importlib.util
 import json
+import os
+import shutil
+import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("ratchet", ROOT / "scripts" / "ratchet.py")
@@ -169,3 +175,26 @@ def test_the_levels_are_written_as_the_phone_page_reads_them(tmp_path):
 
 def test_the_budget_comes_from_quality_json():
     assert ratchet.budget(ROOT / "quality.json") == json.loads((ROOT / "quality.json").read_text())["test_budget"]
+
+
+def test_a_mutation_run_that_would_not_start_stops_the_ratchet_in_its_own_words(tmp_path):
+    # The real refusal: mutate.py, with another run holding its checkout's lock. Read as a
+    # tally, it would count 0 of 1 and look like a measure that got worse. It runs as a copy
+    # in a checkout of its own, so even a mutation that switched its lock off could not start
+    # a run on this checkout: there it would only fail, for want of a table.
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "tmp").mkdir()
+    copy = tmp_path / "scripts" / "mutate.py"
+    shutil.copy(ROOT / "scripts" / "mutate.py", copy)
+    folder = os.open(tmp_path / "scripts", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(folder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        refused = ratchet._run(
+            sys.executable, str(copy), cwd=tmp_path, env={**os.environ, "TMPDIR": str(tmp_path / "tmp")}
+        )
+    finally:
+        os.close(folder)
+    assert refused.returncode
+    with pytest.raises(SystemExit) as stopped:
+        ratchet.mutation_levels(refused)
+    assert f"A mutation run is already going in {tmp_path}" in str(stopped.value)
