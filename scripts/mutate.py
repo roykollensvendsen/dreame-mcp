@@ -17,11 +17,13 @@ changed while it was mutated (that file is then left as it is).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -148,7 +150,30 @@ def repair() -> None:
     RECOVERY.unlink()
 
 
+def stop_cleanly() -> None:
+    """Let SIGTERM (a cancelled CI job, kill) stop a run the way Ctrl-C does, so the finally
+    blocks put the mutated line back and remove the run's temporary files."""
+    signal.signal(signal.SIGTERM, lambda number, _frame: sys.exit(128 + number))
+
+
 def main() -> int:
+    stop_cleanly()
+    try:
+        return _run_rules()
+    finally:
+        # RULE: a finished run leaves not even its empty folder
+        quiet_rmdir(MUTATE_TMP)
+
+
+def quiet_rmdir(folder: Path) -> None:
+    """Remove the folder if it is empty. One a killed run left files in is kept, for the
+    next run to sweep. (The ratchet measures its base in a copy at a new path each time,
+    so a folder kept per checkout would add one to /tmp with every ratchet run.)"""
+    with contextlib.suppress(OSError):
+        folder.rmdir()
+
+
+def _run_rules() -> int:
     repair()
     # RULE: temporary files a killed run left are swept at the next start
     sweep()
