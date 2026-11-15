@@ -279,3 +279,9 @@ name = "a stopped run still cleans up"
 file = "scripts/mutate.py"
 find = '^\s+stop_cleanly\(\)$'
 replace = 'pass'
+
+[[rule]]
+name = "a run trusts its folder only when it is really ours"
+file = "scripts/mutate.py"
+find = '^\s+_check_ours\(fd\)$'
+replace = 'pass'

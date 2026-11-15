@@ -112,12 +112,15 @@ ratchet.stop_cleanly()
 ratchet._run(sys.executable, "-c", sys.argv[2])
 """
 
-#: Stands in for the mutation run: says it is going, and on Ctrl-C puts its line back.
+#: Stands in for the mutation run: says it is going, and on Ctrl-C puts its line back. Every
+#: Ctrl-C it gets is counted: a second one would make pytest cut its own cleanup short.
 CHILD = """
 import pathlib, signal, sys, time
 marks = pathlib.Path({marks!r})
 def put_back(*_):
-    (marks / "put-back").touch()
+    with open(marks / "put-back", "a") as told:
+        told.write("x")
+    time.sleep(1)  # room for a second Ctrl-C to arrive and be counted
     sys.exit(130)
 signal.signal(signal.SIGINT, put_back)
 (marks / "going").touch()
@@ -125,19 +128,35 @@ time.sleep(120)
 """
 
 
-def test_a_stopped_ratchet_lets_its_mutation_run_put_its_line_back(tmp_path):
+def _stop_while_child_runs(tmp_path, stop):
     marks = tmp_path / "marks"
     marks.mkdir()
     child = CHILD.replace("{marks!r}", repr(str(marks)))
-    stand_in = subprocess.Popen([sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child])
+    stand_in = subprocess.Popen(
+        [sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child],
+        start_new_session=True,  # its own process group, as a terminal gives a command
+    )
     try:
         for _ in range(600):
             if (marks / "going").exists():
                 break
             time.sleep(0.05)
-        stand_in.send_signal(signal.SIGTERM)  # the ratchet alone, as kill or CI would
-        assert stand_in.wait(timeout=60) == 128 + signal.SIGTERM
+        stop(stand_in)
+        code = stand_in.wait(timeout=60)
     finally:
         if stand_in.poll() is None:
-            stand_in.kill()
-    assert (marks / "put-back").exists()  # it was told with Ctrl-C, not killed outright
+            os.killpg(stand_in.pid, signal.SIGKILL)
+    return code, marks
+
+
+def test_a_stopped_ratchet_lets_its_mutation_run_put_its_line_back(tmp_path):
+    code, marks = _stop_while_child_runs(tmp_path, lambda p: p.send_signal(signal.SIGTERM))  # kill, CI
+    assert code == 128 + signal.SIGTERM
+    assert (marks / "put-back").read_text() == "x"  # told with Ctrl-C, not killed outright
+
+
+def test_ctrl_c_in_a_terminal_reaches_the_ratchets_child_once(tmp_path):
+    # A terminal's Ctrl-C goes to the whole process group: ratchet and child alike.
+    code, marks = _stop_while_child_runs(tmp_path, lambda p: os.killpg(p.pid, signal.SIGINT))
+    assert code != 0
+    assert (marks / "put-back").read_text() == "x"  # once, not twice

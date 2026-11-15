@@ -89,8 +89,8 @@ def _again(func, path, _error) -> None:
 def remove(folder: Path) -> None:
     """Remove a folder of test files, also the ones a test left with no permissions,
     without following a link out of it."""
-    if folder.is_symlink():
-        folder.unlink()
+    if folder.is_symlink() or (folder.exists() and not folder.is_dir()):
+        folder.unlink()  # a link goes, never what it points to; a stray file goes too
         return
     if not folder.is_dir():
         return
@@ -118,9 +118,14 @@ def guarded() -> Iterator[None]:
     A run that waited while another removed the folder makes it again and waits once more."""
     while True:
         MUTATE_TMP.mkdir(mode=0o700, exist_ok=True)
-        fd = os.open(MUTATE_TMP, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fd = os.open(MUTATE_TMP, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError as error:  # a link, or something else, planted at the name
+            raise SystemExit(_not_ours(f"is not a folder of yours ({error.strerror})")) from None
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
+            # RULE: a run trusts its folder only when it is really ours
+            _check_ours(fd)
             if _same(fd, MUTATE_TMP):
                 yield
                 return
@@ -128,9 +133,28 @@ def guarded() -> Iterator[None]:
             os.close(fd)
 
 
+def _not_ours(why: str) -> str:
+    return (
+        f"{MUTATE_TMP} {why}. Its name is easy to guess in a shared /tmp, so this run will not"
+        " use it: look at what is there, remove it if it is not yours, and run again."
+    )
+
+
+def _check_ours(fd: int) -> None:
+    """MUTATE_TMP has a name anyone can guess, in a /tmp everyone shares. Only a folder made
+    by this user, which no one else may enter, is used, so nothing planted there first can
+    steer what the sweep removes."""
+    held = os.fstat(fd)
+    if not stat.S_ISDIR(held.st_mode) or held.st_uid != os.getuid():
+        raise SystemExit(_not_ours("is not a folder of yours"))
+    if held.st_mode & 0o077:
+        raise SystemExit(_not_ours(f"is one others may enter (mode {stat.S_IMODE(held.st_mode):o})"))
+
+
 def held(folder: Path) -> bool:
     """Whether a run still going holds this folder's lock. Only opens, never creates, and
-    never follows a link; what cannot be opened as a folder is no run's."""
+    never follows a link. What cannot be opened as a folder (a file, a link, a folder no
+    one may open) is no run's, so the sweep removes it."""
     try:
         fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
