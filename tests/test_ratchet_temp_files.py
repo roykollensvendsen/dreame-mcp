@@ -160,3 +160,48 @@ def test_ctrl_c_in_a_terminal_reaches_the_ratchets_child_once(tmp_path):
     code, marks = _stop_while_child_runs(tmp_path, lambda p: os.killpg(p.pid, signal.SIGINT))
     assert code != 0
     assert (marks / "put-back").read_text() == "x"  # once, not twice
+
+
+#: Stands in for a suite the ratchet runs: says it is going, waits until the ratchet is gone,
+#: then writes a lot, as pytest's summary does, and only then marks itself finished.
+OUTLIVES = """
+import os, pathlib, sys, time
+marks = pathlib.Path({marks!r})
+(marks / "going").write_text(str(os.getpid()))
+while not (marks / "ratchet-gone").exists():
+    time.sleep(0.05)
+print("x" * 1_000_000, flush=True)
+print("y" * 1_000_000, file=sys.stderr, flush=True)
+(marks / "finished").touch()
+"""
+
+
+def test_a_child_outlives_a_ratchet_killed_with_kill_9_and_leaves_no_file(tmp_path, temp):
+    # kill -9 is the way out the ratchet names when its child hangs; the child must then
+    # still finish (a mutation run puts its line back), not die writing into a dead pipe.
+    marks = tmp_path / "marks"
+    marks.mkdir()
+    child = OUTLIVES.replace("{marks!r}", repr(str(marks)))
+    stand_in = subprocess.Popen([sys.executable, "-c", RATCHET, str(ROOT / "scripts" / "ratchet.py"), child])
+    pid = None
+    try:
+        for _ in range(600):
+            if (marks / "going").exists() and (marks / "going").read_text():
+                pid = int((marks / "going").read_text())
+                break
+            time.sleep(0.05)
+        assert pid, "the child never started"
+        stand_in.kill()
+        stand_in.wait(timeout=60)
+        (marks / "ratchet-gone").touch()
+        for _ in range(600):
+            if (marks / "finished").exists() or not Path(f"/proc/{pid}").exists():
+                break
+            time.sleep(0.05)
+        assert (marks / "finished").exists(), "the child died once the ratchet was gone"
+        assert sorted(p.name for p in temp.iterdir()) == []
+    finally:
+        if stand_in.poll() is None:
+            stand_in.kill()
+        if pid and Path(f"/proc/{pid}").exists():
+            os.kill(pid, signal.SIGKILL)
