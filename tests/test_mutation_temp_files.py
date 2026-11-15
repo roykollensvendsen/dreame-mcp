@@ -11,6 +11,7 @@ project, not a fake.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import stat
 import subprocess
@@ -84,7 +85,7 @@ def test_temporary_files_a_killed_run_left_are_swept_at_the_next_start(project, 
     (left / "out").symlink_to(project, target_is_directory=True)
     (left / "locked").chmod(0)
     monkeypatch.setattr(mutate, "rules", lambda: [])
-    monkeypatch.setattr(mutate, "RECOVERY", mutate.MUTATE_TMP / "no-recovery.json")
+    monkeypatch.setattr(mutate, "RECOVERY", mutate.ROOT / "no-recovery.json")  # in the checkout, as in real use
     assert mutate.main() == 0
     assert not mutate.MUTATE_TMP.exists()  # the leftover went, and with it the emptied folder
     assert (project / "theirs").is_dir()
@@ -222,3 +223,22 @@ def test_a_sweep_removes_what_no_run_can_hold(project):
     mutate.sweep()
     assert list(mutate.MUTATE_TMP.iterdir()) == []
     assert (project / "theirs").is_dir()
+
+
+def test_repair_only_puts_back_a_stopped_runs_line_and_runs_nothing(project, monkeypatch, capsys):
+    # After a run was killed outright, its line is put back without starting a new run.
+    source = mutate.ROOT / "answer.py"
+    source.write_text("return 0\n")  # as the killed run left it
+    recovery = mutate.ROOT / "recovery.json"
+    recovery.write_text(json.dumps({"file": "answer.py", "original": "return 42\n", "mutated": "return 0\n"}))
+    monkeypatch.setattr(mutate, "RECOVERY", recovery)
+
+    def no_run():
+        raise AssertionError("--repair-only started a run")
+
+    monkeypatch.setattr(mutate, "rules", no_run)
+    assert mutate.main(["--repair-only"]) == 0
+    assert source.read_text() == "return 42\n"
+    assert not recovery.exists()
+    assert not mutate.MUTATE_TMP.exists()
+    assert "put back answer.py" in capsys.readouterr().out
