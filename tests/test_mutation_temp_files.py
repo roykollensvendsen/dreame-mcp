@@ -242,3 +242,30 @@ def test_repair_only_puts_back_a_stopped_runs_line_and_runs_nothing(project, mon
     assert not recovery.exists()
     assert not mutate.MUTATE_TMP.exists()
     assert "put back answer.py" in capsys.readouterr().out
+
+
+#: A test that looks, from inside a suite run, whether its run's folder is still locked.
+LOOKS_AT_ITS_LOCK = """
+    import fcntl, os
+    from pathlib import Path
+
+    def test_looks(tmp_path_factory):
+        run = tmp_path_factory.getbasetemp().parent  # the run's folder holds pytest's
+        fd = os.open(run, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            seen = "free"
+        except BlockingIOError:
+            seen = "held"
+        finally:
+            os.close(fd)
+        Path(os.environ["OUTSIDE"], "seen").write_text(seen)
+"""
+
+
+def test_the_runs_lock_stays_on_the_folder_that_holds_its_files(project):
+    # pytest empties and remakes its --basetemp when it starts, which would leave the lock on a
+    # folder that is gone. So the lock is on the run's folder, and pytest's files sit inside it.
+    (mutate.ROOT / "tests" / "test_mess.py").write_text(textwrap.dedent(LOOKS_AT_ITS_LOCK))
+    mutate.failing_tests()
+    assert (project / "seen").read_text() == "held"

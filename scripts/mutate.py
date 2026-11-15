@@ -211,7 +211,9 @@ def failing_tests() -> list[str]:
                 "--color=no",
                 "-p",
                 "no:cacheprovider",
-                f"--basetemp={run}",
+                # Inside the locked folder, never the folder itself: pytest empties and remakes
+                # its basetemp at start, which would leave the lock on a folder that is gone.
+                f"--basetemp={run / 'pytest'}",
             ],
             cwd=ROOT,
             env=env,
