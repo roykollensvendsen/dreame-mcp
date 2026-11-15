@@ -11,9 +11,12 @@ project, not a fake.
 from __future__ import annotations
 
 import importlib.util
+import os
 import stat
+import subprocess
 import sys
 import textwrap
+import time
 import tomllib
 from pathlib import Path
 
@@ -130,3 +133,52 @@ def test_a_suite_run_has_no_time_limit(project, monkeypatch):
     monkeypatch.setattr(mutate.subprocess, "run", run)
     assert mutate.failing_tests() == []
     assert "timeout" not in seen
+
+
+#: Another run of this checkout, still going: it holds its folder's lock until stopped.
+HOLDS_A_RUN = """
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY)
+fcntl.flock(fd, fcntl.LOCK_EX)
+open(sys.argv[2], "w").close()
+time.sleep(120)
+"""
+
+
+def test_a_sweep_leaves_the_folder_of_a_run_still_going_alone(project, tmp_path):
+    going, ready = mutate.MUTATE_TMP / "run-going", tmp_path / "ready"
+    (going / "pytest").mkdir(parents=True)
+    other = subprocess.Popen([sys.executable, "-c", HOLDS_A_RUN, str(going), str(ready)])
+    try:
+        for _ in range(600):
+            if ready.exists():
+                break
+            time.sleep(0.05)
+        mutate.sweep()
+        assert (going / "pytest").is_dir()  # its run is still going
+    finally:
+        other.kill()
+        other.wait()
+    mutate.sweep()
+    assert not going.exists()  # its run is gone, so the folder is a leftover
+
+
+def test_a_run_folder_is_locked_before_anyone_can_see_it(project, monkeypatch):
+    # A sweep holds MUTATE_TMP's lock while it looks, so a folder made under that lock and
+    # locked before it is released is never seen unlocked.
+    seen = []
+    real = mutate.tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        seen.append(mutate.held(mutate.MUTATE_TMP))  # MUTATE_TMP itself is locked meanwhile
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(mutate.tempfile, "mkdtemp", mkdtemp)
+    run, lock = mutate.new_run()
+    try:
+        assert seen == [True]
+        assert mutate.held(run)
+    finally:
+        os.close(lock)
+    assert not mutate.held(run)
+    mutate.remove(run)
