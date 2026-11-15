@@ -255,3 +255,9 @@ name = "temporary files a killed run left are swept at the next start"
 file = "scripts/mutate.py"
 find = '^\s+sweep\(\)$'
 replace = 'pass'
+
+[[rule]]
+name = "a finished run leaves not even its empty folder"
+file = "scripts/mutate.py"
+find = '^\s+quiet_rmdir\(MUTATE_TMP\)$'
+replace = 'pass'

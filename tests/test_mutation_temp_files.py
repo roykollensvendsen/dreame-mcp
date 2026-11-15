@@ -82,8 +82,19 @@ def test_temporary_files_a_killed_run_left_are_swept_at_the_next_start(project, 
     monkeypatch.setattr(mutate, "rules", lambda: [])
     monkeypatch.setattr(mutate, "RECOVERY", mutate.MUTATE_TMP / "no-recovery.json")
     assert mutate.main() == 0
-    assert list(mutate.MUTATE_TMP.iterdir()) == []
+    assert not mutate.MUTATE_TMP.exists()  # the leftover went, and with it the emptied folder
     assert (project / "theirs").is_dir()
+
+
+def test_a_finished_run_leaves_not_even_its_empty_folder(project, monkeypatch, capsys):
+    # The ratchet measures its base in a copy at a new path each time, so a folder per
+    # checkout kept after the run would add an empty one to /tmp with every ratchet run.
+    rule = {"name": "fails", "file": "tests/test_mess.py", "find": r"assert False", "replace": "assert 1 == 2"}
+    monkeypatch.setattr(mutate, "rules", lambda: [rule])  # one real suite run, its test caught
+    monkeypatch.setattr(mutate, "RECOVERY", project / "no-recovery.json")
+    assert mutate.main() == 0
+    assert "1/1 rules failed" in capsys.readouterr().out
+    assert not mutate.MUTATE_TMP.exists()
 
 
 def test_the_runs_temporary_files_are_kept_outside_the_checkout():

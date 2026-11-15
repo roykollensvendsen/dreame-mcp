@@ -29,6 +29,7 @@ import ast
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -222,18 +223,36 @@ def _run(*command: str, env: dict[str, str] | None = None) -> subprocess.Complet
     return subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, check=False)
 
 
-def measure(*, skip_mutation: bool = False, recorded: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Every level, from the tree as it is now."""
+#: How the suite is run: through uv, so it runs in the project's own environment.
+PYTEST = ("uv", "run", "pytest")
+
+
+def _suite() -> tuple[subprocess.CompletedProcess[str], float, float]:
+    """Run the tests once, with coverage: the run, its seconds, and the coverage."""
     with tempfile.TemporaryDirectory() as tmp:
         report = Path(tmp) / "coverage.json"
         started = time.monotonic()
+        # pytest's own temporary files go in here too, so they go with it (TemporaryDirectory
+        # gives back the rights a test took away before removing them).
         suite = _run(
-            "uv", "run", "pytest", "-q", "-p", "no:cacheprovider", "--cov=dreame_mcp", f"--cov-report=json:{report}"
+            *PYTEST,
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            f"--basetemp={Path(tmp) / 'pytest'}",
+            "--cov=dreame_mcp",
+            f"--cov-report=json:{report}",
         )
         seconds = round(time.monotonic() - started, 1)
         if suite.returncode:
             raise SystemExit("The tests fail; only a green tree is measured.\n" + suite.stdout[-2000:])
         coverage = round(json.loads(report.read_text())["totals"]["percent_covered"], 2)
+    return suite, seconds, coverage
+
+
+def measure(*, skip_mutation: bool = False, recorded: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Every level, from the tree as it is now."""
+    suite, seconds, coverage = _suite()
     passed = re.search(r"(\d+) passed", suite.stdout)
     lint = _run(
         "uv",
@@ -349,7 +368,14 @@ def write_levels(path: Path, now: dict[str, Any]) -> None:
 # -- the command line -----------------------------------------------------------
 
 
+def stop_cleanly() -> None:
+    """Let SIGTERM (a cancelled CI job, kill) stop a run the way Ctrl-C does, so its finally
+    blocks and temporary folders are cleaned up instead of left in /tmp."""
+    signal.signal(signal.SIGTERM, lambda number, _frame: sys.exit(128 + number))
+
+
 def main() -> int:
+    stop_cleanly()
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("action", choices=["measure", "check"])
     parser.add_argument("--out", type=Path, help="write the levels here")
