@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -166,6 +167,7 @@ def test_ctrl_c_in_a_terminal_reaches_the_ratchets_child_once(tmp_path):
     assert (marks / "put-back").read_text() == "x"  # once, not twice
 
 
+@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv, which the ratchet starts its runs through")
 @pytest.mark.parametrize("stop", [signal.SIGTERM, signal.SIGINT], ids=["kill", "ctrl-c"])
 def test_a_stopped_ratchet_tells_the_python_under_uv_once(tmp_path, stop):
     # The ratchet starts its runs through uv, and uv passes a Ctrl-C on to its own child.
