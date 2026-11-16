@@ -167,11 +167,18 @@ def test_ctrl_c_in_a_terminal_reaches_the_ratchets_child_once(tmp_path):
     assert (marks / "put-back").read_text() == "x"  # once, not twice
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv, which the ratchet starts its runs through")
+@pytest.mark.skipif(
+    shutil.which("uv") is None and not os.environ.get("CI"),
+    reason="needs uv, which the ratchet starts its runs through (in CI, its absence fails instead)",
+)
 @pytest.mark.parametrize("stop", [signal.SIGTERM, signal.SIGINT], ids=["kill", "ctrl-c"])
 def test_a_stopped_ratchet_tells_the_python_under_uv_once(tmp_path, stop):
     # The ratchet starts its runs through uv, and uv passes a Ctrl-C on to its own child.
     # Sent to uv's whole process group instead, it would reach that child twice.
+    # In CI the proof must not drop out unseen: there a missing uv is a failure, not a skip.
+    if shutil.which("uv") is None:
+        pytest.fail("CI has no uv, so the proof that a stopped ratchet tells uv's child once cannot run")
+
     def send(stand_in):
         if stop == signal.SIGINT:
             os.killpg(stand_in.pid, stop)  # a terminal's Ctrl-C, to the ratchet's group
