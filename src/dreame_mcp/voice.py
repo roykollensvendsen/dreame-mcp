@@ -269,14 +269,19 @@ DUE = 10
 NOT_REPORTED = ("water level", "bin fill", "base water tanks")
 # Said on any robot, so it names no model: the base's water tanks (27.1, 27.2) do answer, but
 # an L10s Plus base has none, so they are not read rather than read out wrong.
-CANNOT_REPORT = "It can't report the water level or how full the bin is, and it doesn't read the base's water tanks."
 #: During a clean the cloud also gives no rooms done (the map has no flag for it, and no order
 #: on a full clean) and no time left (no property answers with it); read on 2026-11-14.
 NOT_REPORTED_CLEANING = ("rooms done", "time left")
-CANNOT_REPORT_CLEANING = (
-    "It can't report which rooms are done or how long is left, the water level or how full the bin is,"
-    " and it doesn't read the base's water tanks."
-)
+
+
+def _cannot_report(cleaning: bool, mop_known: bool) -> str:
+    """The closing sentence: what this full status could not report."""
+    what = ["which rooms are done or how long is left"] if cleaning else []
+    what += [] if mop_known else ["whether the mop is on"]
+    what += ["the water level or how full the bin is"]
+    return "It can't report " + ", ".join(what) + ", and it doesn't read the base's water tanks."
+
+
 WATER_TANK = {0: "out", 1: "fitted", 10: "fitted", 99: "in the station"}
 WATER_FLOW = {1: "low", 2: "medium", 3: "high"}
 LOW_WATER = {1: "the water tank is empty", 2: "the water tank is empty", 3: "the water tank is empty",
@@ -328,13 +333,14 @@ class FullStatus:
 
     @classmethod
     def of(cls, raw: dict[str, Any]) -> FullStatus:
-        tank_code, mop, auto = _num(raw, "4.6"), _num(raw, "4.53"), _num(raw, "15.1")
-        # A tank reported as fitted with its mop (10) has the mop on, whatever 4.53 says.
-        with_mop = mop if mop is None or tank_code != 10 else 1
+        tank_code, auto = _num(raw, "4.6"), _num(raw, "15.1")
+        # Only a tank fitted with its mop (10) says the mop is on. 4.53 is not read: the
+        # reference counts 0 there as fitted, and only on robots that drop their mop pad;
+        # on Roy's L10s Plus it read 0 with the mop on and off alike (18.11).
         return cls(
             raw=raw,
             water_tank=_known(WATER_TANK, tank_code),
-            mop_pad=_known({0: "not attached", 1: "attached"}, with_mop),
+            mop_pad="attached" if tank_code == 10 else None,
             water_flow=_known(WATER_FLOW, _num(raw, "4.5")),
             auto_empty=None if auto is None else bool(auto),
             dust_bag=_known(DUST_BAG, _num(raw, "27.3")),
@@ -406,7 +412,7 @@ def full_status(raw: dict[str, Any], room: str | None = None) -> tuple[str, dict
     # RULE: a full status says problems first
     opening = "Problems: " + "; ".join(problems) + "." if problems else "No problems."
     # RULE: a full status says what it cannot report
-    say = f"{opening} {_sentence(words)} {CANNOT_REPORT_CLEANING if reading.cleaning else CANNOT_REPORT}"
+    say = f"{opening} {_sentence(words)} {_cannot_report(reading.cleaning, full.mop_pad is not None)}"
     fields: dict[str, Any] = {
         "problems": problems,
         "docked": reading.docked,
@@ -416,7 +422,11 @@ def full_status(raw: dict[str, Any], room: str | None = None) -> tuple[str, dict
         "wear": full.wear,
         "auto_empty": full.auto_empty,
         "dust_bag": full.dust_bag,
-        "not_reported": [*NOT_REPORTED, *(NOT_REPORTED_CLEANING if reading.cleaning else ())],
+        "not_reported": [
+            *(() if full.mop_pad else ("mop pad",)),
+            *NOT_REPORTED,
+            *(NOT_REPORTED_CLEANING if reading.cleaning else ()),
+        ],
         "progress": progress,
         "room": room if reading.cleaning else None,
     }

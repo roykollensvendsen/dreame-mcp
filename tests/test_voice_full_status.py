@@ -125,7 +125,7 @@ async def test_the_recorded_answer_reads_right():
     assert "dust bin is full" in say
     assert "sensors" in say
     assert "water tank fitted" in say
-    assert "mop pad not attached" in say
+    assert "mop pad" not in say.split("left:")[0]  # 4.53 is not read: see the mop tests below
     assert "main brush 87, side brush 81, filter 75, mop pad 100, sensors 0 percent" in say
     assert answer["water_tank"] == "fitted"
     assert answer["wear"]["filter"] == {"percent": 75, "hours": 113}
@@ -166,9 +166,33 @@ async def test_an_error_is_a_problem():
 async def test_a_full_status_says_what_it_cannot_report():
     answer = await _say()
     assert answer["say"].endswith(
-        "It can't report the water level or how full the bin is, and it doesn't read the base's water tanks."
+        "It can't report whether the mop is on, the water level or how full the bin is,"
+        " and it doesn't read the base's water tanks."
     )
-    assert set(answer["not_reported"]) == {"water level", "bin fill", "base water tanks"}
+    assert set(answer["not_reported"]) == {"mop pad", "water level", "bin fill", "base water tanks"}
+
+
+# -- the mop --------------------------------------------------------------------------
+# Live on Roy's L10s Plus, 18.11: with the tank and its mop fitted, 4.6 read 1 and 4.53
+# read 0, and the full status said "mop pad not attached" every time. In the reference,
+# 4.53 counts 0 as fitted, and only on robots that can drop their mop pad; this one can't,
+# so 4.53 is not read. Only 4.6 = 10 ("fitted with the mop") says the mop is on.
+
+
+@pytest.mark.parametrize("pad", [0, 1])
+async def test_the_mop_pad_reading_is_not_trusted_on_its_own(pad):
+    answer = await _say(**{"4.6": 1, "4.53": pad})
+    assert answer["mop_pad"] is None
+    assert "mop pad attached" not in answer["say"] and "mop pad not attached" not in answer["say"]
+    assert "mop pad" in answer["not_reported"]
+
+
+async def test_a_tank_fitted_with_its_mop_says_the_mop_is_on():
+    answer = await _say(**{"4.6": 10, "4.53": 1})
+    assert answer["mop_pad"] == "attached"
+    assert "water tank fitted, mop pad attached" in answer["say"]
+    assert "mop pad" not in answer["not_reported"]
+    assert "whether the mop is on" not in answer["say"]
 
 
 async def test_a_reading_the_cloud_left_out_is_not_guessed():
@@ -203,7 +227,8 @@ async def test_a_clean_in_progress_says_how_far_it_has_got():
 async def test_a_clean_in_progress_says_what_it_cannot_report():
     answer = await _say(**CLEANING)
     assert answer["say"].endswith(
-        "It can't report which rooms are done or how long is left, the water level or how full the bin is,"
+        "It can't report which rooms are done or how long is left, whether the mop is on,"
+        " the water level or how full the bin is,"
         " and it doesn't read the base's water tanks."
     )
     assert {"rooms done", "time left"} <= set(answer["not_reported"])
