@@ -4,11 +4,16 @@ MIT lets the code be relicensed, but only if its copyright and permission
 notice stay with every copy. These tests keep both halves true together.
 """
 
+import hashlib
 import json
 import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# sha256 of the upstream LICENSE as it stood before the fork became GPL
+# (commit 5d70c3c), byte for byte: "MIT License" through "SOFTWARE.\n".
+UPSTREAM_MIT_NOTICE_SHA256 = "408dff2e3167a75e92d211f7f7f5c96f314ba08adc4fbed701a9543deff8c216"
 
 
 def test_the_licence_file_is_the_gpl_version_3():
@@ -31,6 +36,13 @@ def test_the_upstream_mit_notice_is_kept_in_full():
     assert "Copyright (c) 2026 Sandra Schipal" in text
     assert "The above copyright notice and this permission notice shall be included" in text
     assert "used under the MIT License" in text
+
+
+def test_the_upstream_mit_notice_is_kept_word_for_word():
+    data = (ROOT / "LICENSE-MIT").read_bytes()
+    notice = data[data.index(b"MIT License\n\nCopyright") :]
+
+    assert hashlib.sha256(notice).hexdigest() == UPSTREAM_MIT_NOTICE_SHA256
 
 
 def test_the_server_listing_names_the_same_licence():
