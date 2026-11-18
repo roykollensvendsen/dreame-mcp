@@ -229,7 +229,7 @@ replace = 'opening = "No problems."'
 [[rule]]
 name = "a full status says what it cannot report"
 file = "src/dreame_mcp/voice.py"
-find = 'say = f"\{opening\} \{_sentence\(words\)\} \{CANNOT_REPORT_CLEANING if reading\.cleaning else CANNOT_REPORT\}"'
+find = 'say = f"\{opening\} \{_sentence\(words\)\} \{_cannot_report\(reading\.cleaning, full\.mop_pad is not None\)\}"'
 replace = 'say = f"{opening} {_sentence(words)}"'
 
 [[rule]]

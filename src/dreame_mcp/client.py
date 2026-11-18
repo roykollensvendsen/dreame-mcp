@@ -303,7 +303,6 @@ FULL_STATUS: tuple[tuple[int, int], ...] = (
     (4, 6),  # water tank: 0 out, 1 fitted, 10 fitted with the mop, 99 in the station
     (4, 35),  # warning code, 0 for none
     (4, 41),  # low water: 0 none, 1-4 no water left, 5 low, 6 tank not fitted
-    (4, 53),  # mop pad attached: 0 or 1
     (9, 1),  # main brush, hours left
     (9, 2),  # main brush, percent left
     (10, 1),  # side brush, hours left
