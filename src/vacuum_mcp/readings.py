@@ -38,7 +38,10 @@ class Readings:
     Values are plain words or numbers, never a brand's codes:
     ``state`` one of the names in ``STATE_NAMES``; ``error`` the problems in words;
     ``water_tank`` "fitted", "out" or "in the station"; ``mop_pad`` "attached" or
-    "not attached"; ``consumables`` each part's percent and hours left.
+    "not attached"; ``water_flow`` "low", "medium" or "high" (a setting); ``dust_bag``
+    the base's bag, "fitted", "not fitted" or "to be checked"; ``done`` the percent of this
+    clean done; ``consumables`` each part's percent and hours left. ``error`` holds every
+    problem the backend can name, in words.
     """
 
     state: Reading[str]
@@ -47,10 +50,13 @@ class Readings:
     error: Reading[tuple[str, ...]]
     area: Reading[int]
     time: Reading[int]
+    done: Reading[int]
     water_tank: Reading[str]
     mop_pad: Reading[str]
+    water_flow: Reading[str]
     dust_bin: Reading[str]
     auto_empty: Reading[bool]
+    dust_bag: Reading[str]
     consumables: Reading[dict[str, dict[str, int]]]
 
 

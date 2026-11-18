@@ -15,6 +15,9 @@ import pytest
 from dreame_mcp.client import FULL_STATUS, DreameHomeClient
 from dreame_mcp.simulator import SimulatedVacuum
 from dreame_mcp.voice import Link, Vacuum
+from vacuum_mcp.backends import dreame
+from vacuum_mcp.capabilities import COMMANDS, Capabilities
+from vacuum_mcp.readings import FIELDS
 
 #: siid.piid -> (answer code, value), as the cloud answered on 2026-11-14 (the robot on its
 #: dock, fully charged, its water tank just refilled and fitted).
@@ -93,12 +96,13 @@ class Recorded:
         self.connected = True
         self.cloud_error = None
         self.map_source = "live"
+        self.model = "dreame.vacuum.r2363a"
 
     async def connect(self) -> bool:
         return True
 
     async def get_full_status(self) -> dict:
-        return {"success": True, "raw": dict(self.raw)}
+        return {"success": True, "raw": dict(self.raw), "model": self.model}
 
     async def get_map(self) -> dict:
         self.map_reads = getattr(self, "map_reads", 0) + 1
@@ -187,12 +191,34 @@ async def test_the_mop_pad_reading_is_not_trusted_on_its_own(pad):
     assert "mop pad" in answer["not_reported"]
 
 
-async def test_a_tank_fitted_with_its_mop_says_the_mop_is_on():
+async def test_on_the_l10s_plus_a_tank_fitted_with_its_mop_still_cant_say_the_mop():
+    # Deliberate change in vacuum-mcp S2 (design notes n1): until a live 4.6 = 10 and 0 are
+    # seen with the mop known, the L10s Plus model row doesn't trust the mop, so 10 no
+    # longer says "mop pad attached" (as #52 did) but that it can't report the mop.
     answer = await _say(**{"4.6": 10, "4.53": 1})
+    assert answer["mop_pad"] is None
+    assert "mop pad attached" not in answer["say"]
+    assert "whether the mop is on" in answer["say"]
+    assert "mop pad" in answer["not_reported"]
+
+
+async def test_a_model_trusted_on_the_mop_says_it_is_on(monkeypatch):
+    trusts_mop = Capabilities(commands=COMMANDS, readings=frozenset(FIELDS))
+    monkeypatch.setitem(dreame.MODELS, "dreame.vacuum.r2363a", trusts_mop)
+    answer = await _say(**{"4.6": 10})
     assert answer["mop_pad"] == "attached"
     assert "water tank fitted, mop pad attached" in answer["say"]
     assert "mop pad" not in answer["not_reported"]
     assert "whether the mop is on" not in answer["say"]
+
+
+async def test_a_model_not_in_the_table_says_no_water_flow_or_dust_bag():
+    vacuum = Recorded()
+    vacuum.model = "dreame.vacuum.unknown"
+    answer = await Vacuum(Link(vacuum), settle=0).full_status()
+    assert answer["water_flow"] is None and answer["dust_bag"] is None
+    assert "water flow" not in answer["say"] and "dust bag" not in answer["say"]
+    assert answer["water_tank"] is None and answer["wear"] == {}
 
 
 async def test_a_reading_the_cloud_left_out_is_not_guessed():

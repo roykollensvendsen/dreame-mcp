@@ -27,6 +27,8 @@ from .client import DreameStatus
 
 SWEEPING, IDLE, PAUSED, RETURNING, CHARGING_STATE, CHARGED_STATE = 1, 2, 3, 5, 6, 13
 CHARGING, NOT_CHARGING, CHARGED = 1, 2, 3
+#: The model the pretend vacuum reports: Roy's L10s Plus, whose readings it mirrors.
+MODEL = "dreame.vacuum.r2363a"
 CHARGE_EVERY = 6.0
 DRAIN_EVERY = 12.0
 TRIP_HOME = 20.0
@@ -145,7 +147,7 @@ class SimulatedVacuum:
         if self._state == SWEEPING:  # how far this clean has got, as the robot reports it
             minutes = int((self._clock() - self._since) // 60)
             raw.update({"4.2": minutes, "4.3": minutes, "4.63": min(99, minutes * 2)})
-        return {"success": True, "raw": {**raw, **wear}}
+        return {"success": True, "raw": {**raw, **wear}, "model": MODEL}
 
     async def get_map(self) -> dict:
         if not self._connected:
