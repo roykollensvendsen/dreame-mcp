@@ -3,6 +3,8 @@ name = "dreame-mcp"
 version = "0.2.0"
 description = "FastMCP 3.2.0 MCP server and webapp for Dreame robot vacuums via DreameHome cloud"
 readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "LICENSE-MIT"]
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp>=3.4.4,<4",
