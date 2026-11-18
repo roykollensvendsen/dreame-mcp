@@ -12,7 +12,7 @@ import pytest
 
 from dreame_mcp import voice
 from dreame_mcp.client import DreameStatus, _classify_cloud_failure
-from dreame_mcp.voice import Link, Reading, Vacuum, _login_problem
+from dreame_mcp.voice import Link, Reading, Vacuum, _login_problem, _status
 
 DOCKED = {"2.1": 13, "3.1": 90, "3.2": 3}
 IDLE_OFF_DOCK = {"2.1": 2, "3.1": 70, "3.2": 2}
@@ -81,13 +81,16 @@ def _vacuum(client, clock=None) -> Vacuum:
 # -- reading odd values ------------------------------------------------------
 
 
-def test_a_value_that_is_not_a_number_reads_as_zero():
-    r = Reading.of(DreameStatus(raw={"2.1": "busy", "3.1": [1]}))
-    assert (r.code, r.battery) == (0, 0)
+def test_a_value_that_is_not_a_number_is_left_out():
+    # vacuum-mcp S2b: a value that is not a number is left out (it read as 0 before), so a
+    # battery of [1] is not said as 0 percent.
+    r = Reading.of(_status({"2.1": "busy", "3.1": [1]}))
+    assert (r.state, r.battery) == ("unknown", None)
+    assert "battery" not in r.words()
 
 
 def test_idle_and_fully_charged_is_said_as_on_the_dock():
-    r = Reading.of(DreameStatus(raw={"2.1": 2, "3.1": 100, "3.2": 3}))
+    r = Reading.of(_status({"2.1": 2, "3.1": 100, "3.2": 3}))
     assert r.state == "docked"
     assert r.words() == "on the dock, fully charged, battery 100 percent"
 

@@ -297,3 +297,9 @@ name = "a row that breaks the code is reported as broken"
 file = "scripts/mutate.py"
 find = '^ {8}if why:$'
 replace = 'if False:'
+
+[[rule]]
+name = "only readings the model is trusted on count as a problems read"
+file = "src/vacuum_mcp/backends/dreame.py"
+find = 'read_keys = \{key for key, source in _PROBLEM_SOURCES'
+replace = 'read_keys = {key for key in _PROBLEM_SOURCES if key in raw}'
