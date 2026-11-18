@@ -833,7 +833,7 @@ class DreameHomeClient:
             for r in result:
                 if r.get("code", 0) == 0 and "value" in r:
                     raw[f"{r['siid']}.{r['piid']}"] = r["value"]
-        return {"success": True, "raw": raw}
+        return {"success": True, "raw": raw, "model": self._model}
 
     def _control_sync(self, cmd: str) -> dict:
         if not self._protocol:

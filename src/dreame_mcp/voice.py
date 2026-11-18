@@ -40,20 +40,18 @@ from typing import Any, Protocol, TypeVar
 
 from fastmcp import FastMCP
 
+from vacuum_mcp.backends import dreame
 from vacuum_mcp.backends.dreame import (
     CHARGED,
     CHARGING,
     CLEANING,
     DOCKED,
-    DUST_BAG,
-    LOW_WATER,
     PARTS,
-    PROBLEMS,
     STATES,
     STOPPABLE,
-    WATER_FLOW,
-    WATER_TANK,
 )
+from vacuum_mcp.readings import Reading as VacReading
+from vacuum_mcp.readings import Readings
 
 from .client import DreameStatus, client_from_env
 from .login_wait import LoginWait, reason_of
@@ -225,41 +223,21 @@ def _cannot_report(cleaning: bool, mop_known: bool) -> str:
     return "It can't report " + ", ".join(what) + ", and it doesn't read the base's water tanks."
 
 
-def _num(raw: dict[str, Any], key: str) -> int | None:
-    try:
-        return int(raw[key])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-def _problem(code: int) -> str:
-    return PROBLEMS.get(code, f"error code {code}, which the DreameHome app explains")
-
-
 def _sentence(parts: list[str]) -> str:
     return parts[0][0].upper() + parts[0][1:] + "".join(f"; {p}" for p in parts[1:]) + "."
 
 
-def _known(table: dict[int, str], code: int | None) -> str | None:
-    """A code's words, or None when the cloud left the reading out or has no words for it."""
-    return None if code is None else table.get(code)
-
-
-def _wear(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
-    """Percent and hours left of each part the cloud reported; a reading it left out stays out."""
-    wear: dict[str, dict[str, int]] = {}
-    for name, _, percent_at, hours_at in PARTS:
-        left = {"percent": _num(raw, percent_at), "hours": _num(raw, hours_at)}
-        if left["percent"] is not None:
-            wear[name] = {k: v for k, v in left.items() if v is not None}
-    return wear
+def _known[V](reading: VacReading[V]) -> V | None:
+    """A reading's value when the backend trusts it on this model, else None: never a guess."""
+    return reading.value if reading.known else None
 
 
 @dataclass(frozen=True)
 class FullStatus:
-    """A full status read, in words; None for a reading the cloud left out, never a guess."""
+    """A full status read, in words; None for a reading the cloud left out or the model
+    can't be trusted on, never a guess."""
 
-    raw: dict[str, Any]
+    readings: Readings
     water_tank: str | None
     mop_pad: str | None
     water_flow: str | None
@@ -268,31 +246,22 @@ class FullStatus:
     wear: dict[str, dict[str, int]]
 
     @classmethod
-    def of(cls, raw: dict[str, Any]) -> FullStatus:
-        tank_code, auto = _num(raw, "4.6"), _num(raw, "15.1")
-        # Only a tank fitted with its mop (10) says the mop is on. 4.53 is not read: the
-        # reference counts 0 there as fitted, and only on robots that drop their mop pad;
-        # on Roy's L10s Plus it read 0 with the mop on and off alike (18.11).
+    def of(cls, readings: Readings) -> FullStatus:
         return cls(
-            raw=raw,
-            water_tank=_known(WATER_TANK, tank_code),
-            mop_pad="attached" if tank_code == 10 else None,
-            water_flow=_known(WATER_FLOW, _num(raw, "4.5")),
-            auto_empty=None if auto is None else bool(auto),
-            dust_bag=_known(DUST_BAG, _num(raw, "27.3")),
-            wear=_wear(raw),
+            readings=readings,
+            water_tank=_known(readings.water_tank),
+            mop_pad=_known(readings.mop_pad),
+            water_flow=_known(readings.water_flow),
+            auto_empty=_known(readings.auto_empty),
+            dust_bag=_known(readings.dust_bag),
+            wear=_known(readings.consumables) or {},
         )
 
     def problems(self) -> list[str]:
-        found = [_problem(code) for key in ("2.2", "4.35") if (code := _num(self.raw, key))]
+        found = list(_known(self.readings.error) or ())
         # RULE: a missing water tank is a problem
         if self.water_tank == "out":
             found.append("the water tank is out")
-        found += [low] if (low := _known(LOW_WATER, _num(self.raw, "4.41"))) else []
-        if self.dust_bag in ("not fitted", "to be checked"):
-            found.append(f"the dust bag in the base is {self.dust_bag}")
-        if _num(self.raw, "15.5") == 2:
-            found.append("the base didn't empty the bin")
         found += [_due(name, words) for name, words, _, _ in PARTS if self._worn(name)]
         return list(dict.fromkeys(found))  # the same problem from two readings is said once
 
@@ -316,10 +285,10 @@ class FullStatus:
 PROGRESS = (("square_metres", "square metres"), ("minutes", "minutes"))
 
 
-def _progress(raw: dict[str, Any]) -> dict[str, int] | None:
+def _progress(readings: Readings) -> dict[str, int] | None:
     """How far this clean has got, from what the robot reports; None when it reports none of it."""
-    got = {"percent": _num(raw, "4.63"), "square_metres": _num(raw, "4.3"), "minutes": _num(raw, "4.2")}
-    return {k: v for k, v in got.items() if v is not None} or None
+    got = {"percent": readings.done, "square_metres": readings.area, "minutes": readings.time}
+    return {k: v for k, r in got.items() if (v := _known(r)) is not None} or None
 
 
 def _progress_words(progress: dict[str, int], room: str | None) -> list[str]:
@@ -334,14 +303,18 @@ def _due(name: str, words: str) -> str:
     return "the sensors are due for cleaning" if name == "sensors" else f"the {words} is due for a change"
 
 
-def full_status(raw: dict[str, Any], room: str | None = None) -> tuple[str, dict[str, Any]]:
+def full_status(
+    raw: dict[str, Any], model: str | None, room: str | None = None, as_of: float | None = None
+) -> tuple[str, dict[str, Any]]:
     """What a full status says, and its fields, from the robot's readings and, during a
-    clean, the room the live map puts it in. A reading the cloud left out is not guessed:
-    it is left out of both."""
-    full, reading = FullStatus.of(raw), Reading.of(DreameStatus(raw=raw))
+    clean, the room the live map puts it in. A reading the cloud left out, or one this model
+    can't be trusted on, is not guessed: it is left out of both."""
+    # The cloud's get_properties can hold a docked robot's values for minutes (18.11): "cache".
+    readings = dreame.read(raw, model, time.time() if as_of is None else as_of, "cache")
+    full, reading = FullStatus.of(readings), Reading.of(DreameStatus(raw=raw))
     problems = full.problems()
     words = full.words(reading)
-    progress = _progress(raw) if reading.cleaning else None
+    progress = _progress(readings) if reading.cleaning else None
     if progress or (reading.cleaning and room):
         # RULE: a clean in progress says how far it has got
         words[1:1] = _progress_words(progress or {}, room)
@@ -632,7 +605,7 @@ class Vacuum:
                 raise Unavailable(UNREACHABLE, TRY_AGAIN)
             reading = Reading.of(DreameStatus(raw=got["raw"]))
             room = await self._room_now(deadline - 1.0) if reading.cleaning else None
-            say, fields = full_status(got["raw"], room)
+            say, fields = full_status(got["raw"], got.get("model"), room)
             return self._answer(True, say, reading, **fields)
 
         return await self._guarded(act, sent=False)

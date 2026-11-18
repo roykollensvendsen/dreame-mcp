@@ -103,9 +103,12 @@ MODELS: dict[str, Capabilities] = {
     # meaningful on models that drop their mop pad) is never read. 4.6 read 1 with the tank
     # and its mop fitted (18.11), so it gives the tank but not the mop: the mop stays
     # untrusted until a live 10 and 0 are seen with the mop known. Bin fill has no property.
+    # Every command, start_rooms included: it is the one a model without room maps would lack.
     "dreame.vacuum.r2363a": Capabilities(commands=COMMANDS, readings=frozenset(FIELDS) - {"mop_pad", "dust_bin"}),
 }
-#: A Dreame model not in the table: the commands every Dreame takes, and only the common readings.
+#: A Dreame model not in the table: the commands every Dreame takes, and only the common readings
+#: (not water flow, the base's dust bag or the percent done, which only some models report).
+#: start_rooms is the command to gate first if a model turns out to lack room maps.
 OTHER = Capabilities(commands=COMMANDS, readings=_COMMON)
 
 
@@ -147,19 +150,26 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
     """One read's properties ({"siid.piid": value}) as neutral readings for this model."""
     trusted = capabilities(model).readings
     code, charging, tank, auto = _num(raw, "2.1"), _num(raw, "3.2"), _num(raw, "4.6"), _num(raw, "15.1")
-    errors = tuple(dict.fromkeys(_problem(c) for key in ("2.2", "4.35") if (c := _num(raw, key))))
+    bag = None if (b := _num(raw, "27.3")) is None else DUST_BAG.get(b)
+    errors = [_problem(c) for key in ("2.2", "4.35") if (c := _num(raw, key))]
+    errors += [low] if (low := LOW_WATER.get(_num(raw, "4.41") or 0)) else []
+    errors += [f"the dust bag in the base is {bag}"] if bag in ("not fitted", "to be checked") else []
+    errors += ["the base didn't empty the bin"] if _num(raw, "15.5") == 2 else []
     values: dict[str, Any] = {
         "state": _state(code, charging),
         "battery": _num(raw, "3.1"),
         "charging": None if charging is None else charging == CHARGING,
-        "error": errors if code is not None else None,
+        "error": tuple(dict.fromkeys(errors)) if code is not None else None,
         "area": _num(raw, "4.3"),
         "time": _num(raw, "4.2"),
+        "done": _num(raw, "4.63"),
         "water_tank": None if tank is None else WATER_TANK.get(tank),
         # Only a tank fitted with its mop (10) says the mop is on; 4.53 is never read.
         "mop_pad": "attached" if tank == 10 else None,
+        "water_flow": None if (flow := _num(raw, "4.5")) is None else WATER_FLOW.get(flow),
         "dust_bin": None,  # no property reports how full the bin is
         "auto_empty": None if auto is None else bool(auto),
+        "dust_bag": bag,
         "consumables": _consumables(raw),
     }
     return Readings(**{f: Reading(values[f], f in trusted, as_of, source) for f in FIELDS})
