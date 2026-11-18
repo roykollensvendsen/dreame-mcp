@@ -15,7 +15,7 @@ from fastmcp import Client
 
 from dreame_mcp.client import DreameStatus
 from dreame_mcp.simulator import SimulatedVacuum
-from dreame_mcp.voice import Link, Reading, Vacuum, build_server, instructions
+from dreame_mcp.voice import Link, Reading, Vacuum, _status, build_server, instructions
 
 SIX = {"vacuum_status", "vacuum_clean_all", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
 TOOLS = SIX | {"vacuum_where", "vacuum_rooms", "vacuum_clean_rooms", "vacuum_full_status"}
@@ -51,7 +51,7 @@ async def _call(vacuum: Vacuum, tool: str, **args) -> dict:
 
 
 def _reading(**raw) -> Reading:
-    return Reading.of(DreameStatus(raw={k.replace("_", "."): v for k, v in raw.items()}))
+    return Reading.of(_status({k.replace("_", "."): v for k, v in raw.items()}))
 
 
 def test_idle_on_a_charging_dock_counts_as_charging():
@@ -67,8 +67,18 @@ def test_error_state_names_the_code():
 
 def test_unknown_state_is_said_plainly():
     r = _reading(**{"2_1": 77, "3_1": 50})
-    assert r.state == "state_77"
+    # vacuum-mcp S2b: the 'state' field is a neutral name, so a code with none is "unknown"
+    # (it was "state_77"); the words still name the code.
+    assert r.state == "unknown"
     assert "state 77" in r.words()
+
+
+def test_without_an_activity_the_state_is_said_in_neutral_words():
+    r = Reading(name="returning", activity=None, battery=40, charging=False)
+    assert r.words() == "on its way back to the dock, battery 40 percent"
+    assert Reading(name=None, activity=None, battery=None, charging=False).words() == (
+        "busy with something I have no name for"
+    )
 
 
 def test_not_charging_off_the_dock_is_not_docked():

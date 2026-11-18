@@ -96,7 +96,7 @@ DUST_BAG = {0: "fitted", 1: "not fitted", 2: "to be checked"}
 
 # -- what each model can do, and which readings it is trusted on --------------------
 #: Readings any Dreame vacuum gives the same way, from the MIoT spec.
-_COMMON = frozenset({"state", "battery", "charging", "error", "area", "time"})
+_COMMON = frozenset({"state", "activity", "battery", "charging", "error", "area", "time"})
 #: Per model. Only this table knows a model's quirks.
 MODELS: dict[str, Capabilities] = {
     # L10s Plus. Its mop is part of the water tank module, so 4.53 (inverted, and only
@@ -117,6 +117,11 @@ def capabilities(model: str | None) -> Capabilities:
     return MODELS.get(model or "", OTHER)
 
 
+def known_model(model: str | None) -> bool:
+    """True when the model has its own row, so more than the common readings are trusted."""
+    return (model or "") in MODELS
+
+
 # -- reading ------------------------------------------------------------------------
 
 
@@ -131,6 +136,28 @@ def _state(code: int | None, charging: int | None) -> str | None:
     if code == 2 and charging in (CHARGING, CHARGED):
         return "charging" if charging == CHARGING else "docked"
     return STATES[code][0] if code in STATES else None
+
+
+#: What an idle robot on its dock is doing, by its charging code.
+ON_THE_DOCK = {CHARGING: "charging on the dock", CHARGED: "on the dock, fully charged"}
+
+
+def _activity(code: int | None, charging: int | None, error: int | None) -> str | None:
+    """What it is doing, in the words of this table, never the robot's own text."""
+    if code is None:
+        return None
+    what = _state_words(code, charging)
+    if code == 4 and error:
+        what += f", error code {error}; the DreameHome app says what it means"
+    return what
+
+
+def _state_words(code: int, charging: int | None) -> str:
+    if code == 2 and charging in ON_THE_DOCK:
+        return ON_THE_DOCK[charging]
+    if code in STATES:
+        return STATES[code][1]
+    return f"busy with something I have no name for (state {code})"
 
 
 def _problem(code: int) -> str:
@@ -153,6 +180,7 @@ def _looked_up[V](value: int | None, table: dict[int, V]) -> V | None:
 def _errors(raw: dict[str, Any], trusted: frozenset[str]) -> tuple[str, ...] | None:
     """Every problem this model can be trusted to name, in words; None when none was read."""
     # Only keys the model is trusted on count as a read: "no problems" needs a trusted read.
+    # RULE: only readings the model is trusted on count as a problems read
     read_keys = {key for key, source in _PROBLEM_SOURCES.items() if key in raw and source in trusted}
     if "error" not in trusted or not read_keys:
         return None
@@ -189,6 +217,7 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
     code, charging, tank, auto = _num(raw, "2.1"), _num(raw, "3.2"), _num(raw, "4.6"), _num(raw, "15.1")
     values: dict[str, Any] = {
         "state": _state(code, charging),
+        "activity": _activity(code, charging, _num(raw, "2.2")),
         "battery": _num(raw, "3.1"),
         "charging": None if charging is None else charging == CHARGING,
         "error": _errors(raw, trusted),

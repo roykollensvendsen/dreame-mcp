@@ -41,17 +41,9 @@ from typing import Any, Protocol, TypeVar
 from fastmcp import FastMCP
 
 from vacuum_mcp.backends import dreame
-from vacuum_mcp.backends.dreame import (
-    CHARGED,
-    CHARGING,
-    CLEANING,
-    DOCKED,
-    PARTS,
-    STATES,
-    STOPPABLE,
-)
+from vacuum_mcp.backends.dreame import PARTS
+from vacuum_mcp.readings import CLEANING_STATES, DOCKED_STATES, STATE_WORDS, STOPPABLE_STATES, Readings
 from vacuum_mcp.readings import Reading as VacReading
-from vacuum_mcp.readings import Readings
 
 from .client import DreameStatus, client_from_env
 from .login_wait import LoginWait, reason_of
@@ -143,61 +135,61 @@ class Unavailable(Exception):
         return f"{self.wrong} {self.then}"
 
 
+def _known[V](reading: VacReading[V]) -> V | None:
+    """A reading's value when the backend trusts it on this model, else None: never a guess."""
+    return reading.value if reading.known else None
+
+
 @dataclass(frozen=True)
 class Reading:
-    """One status read, reduced to what a spoken answer needs."""
+    """One status read, reduced to what a spoken answer needs: neutral words, no brand codes."""
 
-    code: int
+    name: str | None
+    activity: str | None
     battery: int | None
-    charging: int
-    error_code: int
+    charging: bool
 
     @classmethod
-    def of(cls, status: DreameStatus) -> Reading:
-        raw = status.raw or {}
-
-        def num(key: str) -> int:
-            try:
-                return int(raw.get(key) or 0)
-            except (TypeError, ValueError):
-                return 0
-
-        battery = num("3.1") if "3.1" in raw else None
-        return cls(code=num("2.1"), battery=battery, charging=num("3.2"), error_code=num("2.2"))
+    def of(cls, readings: Readings) -> Reading:
+        return cls(
+            name=_known(readings.state),
+            activity=_known(readings.activity),
+            battery=_known(readings.battery),
+            charging=_known(readings.charging) is True,
+        )
 
     @property
     def state(self) -> str:
-        if self.code == 2 and self.charging in (CHARGING, CHARGED):
-            return "charging" if self.charging == CHARGING else "docked"
-        return STATES.get(self.code, (f"state_{self.code}", ""))[0]
+        return self.name or "unknown"
 
     @property
     def docked(self) -> bool:
-        return self.code in DOCKED or self.charging in (CHARGING, CHARGED)
+        return self.name in DOCKED_STATES or self.charging
+
+    @property
+    def fully_charged(self) -> bool:
+        return self.name == "docked"
 
     @property
     def cleaning(self) -> bool:
-        return self.code in CLEANING
+        return self.name in CLEANING_STATES
 
     @property
     def stoppable(self) -> bool:
-        return self.code in STOPPABLE
+        return self.name in STOPPABLE_STATES
 
     def words(self) -> str:
         """'charging on the dock, battery 84 percent'."""
-        if self.code == 2 and self.charging == CHARGING:
-            what = "charging on the dock"
-        elif self.code == 2 and self.charging == CHARGED:
-            what = "on the dock, fully charged"
-        elif self.code in STATES:
-            what = STATES[self.code][1]
-        else:
-            what = f"busy with something I have no name for (state {self.code})"
-        if self.code == 4 and self.error_code:
-            what += f", error code {self.error_code}; the DreameHome app says what it means"
+        what = self.activity or STATE_WORDS.get(self.name or "", "busy with something I have no name for")
         if self.battery is not None:
             what += f", battery {self.battery} percent"
         return what
+
+
+def _status(raw: dict[str, Any], model: str | None = None) -> Readings:
+    """A status read's properties as neutral readings. The cloud's get_properties can hold a
+    docked robot's values for minutes (18.11), so the source is "cache"."""
+    return dreame.read(raw, model, time.time(), "cache")
 
 
 # -- the full status ------------------------------------------------------------
@@ -213,6 +205,8 @@ NOT_REPORTED = ("water level", "bin fill", "base water tanks")
 #: During a clean the cloud also gives no rooms done (the map has no flag for it, and no order
 #: on a full clean) and no time left (no property answers with it); read on 2026-11-14.
 NOT_REPORTED_CLEANING = ("rooms done", "time left")
+#: Said when the robot's model has no row of its own, so only the common readings are trusted.
+BASICS_ONLY = " I don't know this model, so I only report the basics."
 
 
 def _cannot_report(cleaning: bool, mop_known: bool) -> str:
@@ -225,11 +219,6 @@ def _cannot_report(cleaning: bool, mop_known: bool) -> str:
 
 def _sentence(parts: list[str]) -> str:
     return parts[0][0].upper() + parts[0][1:] + "".join(f"; {p}" for p in parts[1:]) + "."
-
-
-def _known[V](reading: VacReading[V]) -> V | None:
-    """A reading's value when the backend trusts it on this model, else None: never a guess."""
-    return reading.value if reading.known else None
 
 
 @dataclass(frozen=True)
@@ -311,7 +300,7 @@ def full_status(
     can't be trusted on, is not guessed: it is left out of both."""
     # The cloud's get_properties can hold a docked robot's values for minutes (18.11): "cache".
     readings = dreame.read(raw, model, time.time() if as_of is None else as_of, "cache")
-    full, reading = FullStatus.of(readings), Reading.of(DreameStatus(raw=raw))
+    full, reading = FullStatus.of(readings), Reading.of(readings)
     problems = full.problems()
     words = full.words(reading)
     progress = _progress(readings) if reading.cleaning else None
@@ -322,6 +311,9 @@ def full_status(
     opening = "Problems: " + "; ".join(problems) + "." if problems else "No problems."
     # RULE: a full status says what it cannot report
     say = f"{opening} {_sentence(words)} {_cannot_report(reading.cleaning, full.mop_pad is not None)}"
+    if not dreame.known_model(model):
+        logger.warning("full status for a model with no row of its own (%s): only the basics", model)
+        say += BASICS_ONLY
     fields: dict[str, Any] = {
         "problems": problems,
         "docked": reading.docked,
@@ -526,7 +518,7 @@ class Vacuum:
             logger.warning("status read failed: %s", status.error)
             self.link.mark_stale()
             raise Unavailable(UNREACHABLE, TRY_AGAIN)
-        return Reading.of(status)
+        return Reading.of(_status(status.raw))
 
     async def _send(self, cmd: str, deadline: float) -> None:
         client = await self.link.ready(deadline)
@@ -603,7 +595,7 @@ class Vacuum:
                 logger.warning("full status read failed: %s", got.get("error"))
                 self.link.mark_stale()
                 raise Unavailable(UNREACHABLE, TRY_AGAIN)
-            reading = Reading.of(DreameStatus(raw=got["raw"]))
+            reading = Reading.of(_status(got["raw"], got.get("model")))
             room = await self._room_now(deadline - 1.0) if reading.cleaning else None
             say, fields = full_status(got["raw"], got.get("model"), room)
             return self._answer(True, say, reading, **fields)
@@ -729,9 +721,9 @@ class Vacuum:
                 )
             elif r.docked or md.get("docked"):
                 parts = [f"It's on its dock in {name}" if name else "It's on its dock"]
-                if r.charging == CHARGING:
+                if r.charging:
                     parts.append("charging")
-                elif r.charging == CHARGED or r.code == 13:
+                elif r.fully_charged:
                     parts.append("fully charged")
                 if r.battery is not None:
                     parts.append(f"battery {r.battery} percent")

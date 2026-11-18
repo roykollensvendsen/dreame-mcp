@@ -93,7 +93,7 @@ def test_on_the_l10s_plus_the_bin_fill_is_not_reported():
 def test_a_model_not_in_the_table_is_trusted_only_on_the_common_readings():
     readings = _read(model="dreame.vacuum.unknown")
     trusted = {f for f in FIELDS if getattr(readings, f).trusted}
-    assert trusted == {"state", "battery", "charging", "error", "area", "time"}
+    assert trusted == {"state", "activity", "battery", "charging", "error", "area", "time"}
     assert dreame.capabilities(None).commands == COMMANDS
 
 
@@ -132,3 +132,22 @@ def test_problems_are_read_even_when_the_state_is_left_out():
     raw = {k: v for k, v in {**DOCKED, **DERIVED}.items() if k != "2.1"}
     readings = dreame.read(raw, L10S_PLUS, as_of=0.0, source="cache")
     assert "the base didn't empty the bin" in (readings.error.value or ())
+
+
+def test_only_readings_the_model_is_trusted_on_count_as_a_problems_read():
+    """An unknown model with only untrusted problem readings has no error read: None, not ()."""
+    raw = {"4.41": 6, "27.3": 1, "15.5": 2}
+    assert dreame.read(raw, "dreame.vacuum.unknown", as_of=0.0, source="cache").error.value is None
+
+
+@pytest.mark.parametrize(
+    ("change", "words"),
+    [
+        ({"2.1": 25}, "cleaning a second time"),
+        ({"2.1": 2, "3.2": 1}, "charging on the dock"),
+        ({"2.1": 4, "2.2": 7}, "stopped with a problem, error code 7; the DreameHome app says what it means"),
+        ({"2.1": 77}, "busy with something I have no name for (state 77)"),
+    ],
+)
+def test_the_activity_is_in_the_backends_own_words(change, words):
+    assert _read(**change).activity.value == words

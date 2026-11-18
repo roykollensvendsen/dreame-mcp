@@ -219,6 +219,11 @@ async def test_a_model_not_in_the_table_says_no_water_flow_or_dust_bag():
     assert answer["water_flow"] is None and answer["dust_bag"] is None
     assert "water flow" not in answer["say"] and "dust bag" not in answer["say"]
     assert answer["water_tank"] is None and answer["wear"] == {}
+    assert answer["say"].endswith("I don't know this model, so I only report the basics.")
+
+
+async def test_a_model_with_its_own_row_does_not_say_it_reports_only_the_basics():
+    assert "only report the basics" not in (await _say())["say"]
 
 
 async def test_a_reading_the_cloud_left_out_is_not_guessed():
