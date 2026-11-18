@@ -40,6 +40,21 @@ from typing import Any, Protocol, TypeVar
 
 from fastmcp import FastMCP
 
+from vacuum_mcp.backends.dreame import (
+    CHARGED,
+    CHARGING,
+    CLEANING,
+    DOCKED,
+    DUST_BAG,
+    LOW_WATER,
+    PARTS,
+    PROBLEMS,
+    STATES,
+    STOPPABLE,
+    WATER_FLOW,
+    WATER_TANK,
+)
+
 from .client import DreameStatus, client_from_env
 from .login_wait import LoginWait, reason_of
 
@@ -57,45 +72,6 @@ SETTLE = 2.0
 # A start question stays open this long.
 QUESTION_TTL = 120.0
 
-# State codes from the reference project's DreameVacuumState, with a name for
-# the answer's 'state' field and words for 'say'.
-STATES: dict[int, tuple[str, str]] = {
-    1: ("cleaning", "cleaning"),
-    2: ("idle", "idle"),
-    3: ("paused", "paused"),
-    4: ("error", "stopped with a problem"),
-    5: ("returning", "on its way back to the dock"),
-    6: ("charging", "charging on the dock"),
-    7: ("mopping", "mopping"),
-    8: ("drying", "drying its mop"),
-    9: ("washing", "washing its mop"),
-    10: ("returning", "going back to wash its mop"),
-    11: ("mapping", "mapping the home"),
-    12: ("cleaning", "cleaning"),
-    13: ("docked", "on the dock, fully charged"),
-    14: ("updating", "updating its software"),
-    15: ("cleaning", "cleaning"),
-    21: ("paused", "paused while washing its mop"),
-    22: ("emptying", "emptying its dust bin"),
-    24: ("charging", "charging on the dock"),
-    25: ("cleaning", "cleaning a second time"),
-    27: ("cleaning", "spot cleaning"),
-    28: ("returning", "going back to empty its bin"),
-    29: ("idle", "waiting for a task"),
-    34: ("emptying", "emptying its dust bin"),
-    37: ("cleaning", "heading off for an extra clean"),
-    38: ("cleaning", "doing an extra clean"),
-    101: ("cleaning", "doing its first deep clean"),
-    102: ("paused", "paused in its first deep clean"),
-}
-# On the floor doing work: a start would be a second start.
-CLEANING = frozenset({1, 7, 12, 15, 25, 27, 37, 38, 101})
-# Away from the dock and doing something a stop can end.
-STOPPABLE = CLEANING | {3, 5, 10, 11, 21, 28, 102}
-# On the dock.
-DOCKED = frozenset({6, 13, 22, 24, 34})
-# Charging status codes (DreameVacuumChargingStatus).
-CHARGING, CHARGED = 1, 3
 
 NOTHING_SENT = " The vacuum wasn't told anything."
 CHECK_FIRST = "Ask me for its status before you try again."
@@ -230,39 +206,6 @@ class Reading:
 # Codes as the robot reports them (client.FULL_STATUS says where each comes from), in
 # words for 'say'. A code with no words here is said by its number.
 
-#: Error (2.2) and warning (4.35) codes, from the reference's DreameVacuumErrorCode.
-PROBLEMS: dict[int, str] = {
-    1: "a wheel has dropped",
-    2: "a cliff sensor is blocked",
-    3: "its bumper is stuck",
-    8: "the dust bin is out",
-    9: "the water tank is out",
-    10: "the water tank is empty",
-    11: "the dust bin is full",
-    12: "the main brush is tangled",
-    13: "the side brush is tangled",
-    20: "its battery is too low",
-    47: "it is blocked",
-    51: "the filter is blocked",
-    68: "the mop should come off",
-    80: "it is stuck",
-    81: "it is stuck",
-    101: "the dust bin is full",
-    102: "the dust bin is out",
-    103: "the dust bin is out",
-    104: "the dust bin is full",
-    105: "the water tank is out",
-    107: "the water tank is empty",
-    121: "the dust bag in the base is full",
-}
-#: Wear readings: (name in the answer, words, percent left at siid.piid, hours left at).
-PARTS = (
-    ("main_brush", "main brush", "9.2", "9.1"),
-    ("side_brush", "side brush", "10.2", "10.1"),
-    ("filter", "filter", "11.1", "11.2"),
-    ("mop_pad", "mop pad", "18.1", "18.2"),
-    ("sensors", "sensors", "16.1", "16.2"),
-)
 #: A part with this many percent left, or fewer, is due.
 DUE = 10
 #: What the cloud gives no reading for, said at the end of every full status.
@@ -280,13 +223,6 @@ def _cannot_report(cleaning: bool, mop_known: bool) -> str:
     what += [] if mop_known else ["whether the mop is on"]
     what += ["the water level or how full the bin is"]
     return "It can't report " + ", ".join(what) + ", and it doesn't read the base's water tanks."
-
-
-WATER_TANK = {0: "out", 1: "fitted", 10: "fitted", 99: "in the station"}
-WATER_FLOW = {1: "low", 2: "medium", 3: "high"}
-LOW_WATER = {1: "the water tank is empty", 2: "the water tank is empty", 3: "the water tank is empty",
-             4: "the water tank is empty", 5: "the water tank is low", 6: "the water tank is out"}  # fmt: skip
-DUST_BAG = {0: "fitted", 1: "not fitted", 2: "to be checked"}
 
 
 def _num(raw: dict[str, Any], key: str) -> int | None:
