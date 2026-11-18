@@ -111,3 +111,24 @@ def test_capabilities_name_only_known_commands_and_readings():
         Capabilities(commands=frozenset({"fly"}), readings=frozenset())
     with pytest.raises(ValueError, match="unknown readings"):
         Capabilities(commands=frozenset(), readings=frozenset({"tank"}))
+
+
+#: Problems drawn from other readings: no water (4.41 = 6), the base's bag missing (27.3 = 1)
+#: and a failed empty (15.5 = 2). Made up.
+DERIVED = {"4.35": 0, "4.41": 6, "27.3": 1, "15.5": 2}
+
+
+def test_an_unknown_model_names_no_problem_drawn_from_a_reading_it_isnt_trusted_on():
+    assert _read(model="dreame.vacuum.unknown", **DERIVED).error.value == ()
+
+
+def test_the_l10s_plus_names_the_problems_drawn_from_its_trusted_readings():
+    assert _read(**DERIVED).error.value == (
+        "the water tank is out", "the dust bag in the base is not fitted", "the base didn't empty the bin",
+    )  # fmt: skip
+
+
+def test_problems_are_read_even_when_the_state_is_left_out():
+    raw = {k: v for k, v in {**DOCKED, **DERIVED}.items() if k != "2.1"}
+    readings = dreame.read(raw, L10S_PLUS, as_of=0.0, source="cache")
+    assert "the base didn't empty the bin" in (readings.error.value or ())

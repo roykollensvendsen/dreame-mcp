@@ -152,14 +152,19 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
     code, charging, tank, auto = _num(raw, "2.1"), _num(raw, "3.2"), _num(raw, "4.6"), _num(raw, "15.1")
     bag = None if (b := _num(raw, "27.3")) is None else DUST_BAG.get(b)
     errors = [_problem(c) for key in ("2.2", "4.35") if (c := _num(raw, key))]
-    errors += [low] if (low := LOW_WATER.get(_num(raw, "4.41") or 0)) else []
-    errors += [f"the dust bag in the base is {bag}"] if bag in ("not fitted", "to be checked") else []
-    errors += ["the base didn't empty the bin"] if _num(raw, "15.5") == 2 else []
+    # A problem drawn from another reading is named only when the model trusts that reading.
+    if "water_tank" in trusted and (low := LOW_WATER.get(_num(raw, "4.41") or 0)):
+        errors.append(low)
+    if "dust_bag" in trusted and bag in ("not fitted", "to be checked"):
+        errors.append(f"the dust bag in the base is {bag}")
+    if "auto_empty" in trusted and _num(raw, "15.5") == 2:
+        errors.append("the base didn't empty the bin")
+    reported = any(key in raw for key in ("2.2", "4.35", "4.41", "27.3", "15.5"))
     values: dict[str, Any] = {
         "state": _state(code, charging),
         "battery": _num(raw, "3.1"),
         "charging": None if charging is None else charging == CHARGING,
-        "error": tuple(dict.fromkeys(errors)) if code is not None else None,
+        "error": tuple(dict.fromkeys(errors)) if reported else None,
         "area": _num(raw, "4.3"),
         "time": _num(raw, "4.2"),
         "done": _num(raw, "4.63"),
