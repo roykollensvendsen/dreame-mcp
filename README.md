@@ -12,8 +12,11 @@
 > **This fork** is the home of `dreame-voice-mcp`, a small voice server for
 > the vacuum (branch `voice`, see [the voice server](docs/VOICE.md)). The rest
 > is [Sandra Schipal's dreame-mcp](https://github.com/sandraschi/dreame-mcp),
-> MIT licensed, and general fixes go back to her as pull requests; this
-> fork's `main` follows hers.
+> used under the MIT License (its notice is kept in [LICENSE-MIT](LICENSE-MIT));
+> this fork's `main` follows hers.
+>
+> **Licence:** this fork is GPL-3.0-or-later ([LICENSE](LICENSE)), so its
+> changes can't go back to the MIT original as they are.
 
 
 > 📖 **[Installation Guide](INSTALL.md)** — quick start, manual setup, and troubleshooting

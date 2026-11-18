@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "Industrial Dreame D20 Pro Plus MCP Server",
   "author": "Sandra Schipal",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "capabilities": {
     "tools": [
       {
