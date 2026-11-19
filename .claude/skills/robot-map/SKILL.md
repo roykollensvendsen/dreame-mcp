@@ -15,7 +15,7 @@ Run everything from the repository folder, with the login from
   `map_data.robot_position`, `map_data.rooms`, `source`.
 - A film of it moving (only useful while it drives):
   `uv run python .claude/skills/robot-map/scripts/film.py /tmp/film.gif 180 3`.
-- Send pictures to Roy with SendUserFile; he is often on his phone.
+- Send pictures to the owner with SendUserFile; the owner is often on a phone.
 
 ## What is where
 
@@ -24,7 +24,7 @@ Run everything from the repository folder, with the login from
 | 6.3 `OBJECT_NAME` | live map file, `<name>,<key>` |
 | 6.8 `MAP_LIST` | saved maps file: `mapstr[]` + `curr_id` (a `map_id`) |
 | 6.9 `RECOVERY_MAP_LIST` | backups the app can restore |
-| 6.7 `MULTI_FLOOR_MAP` | 0 = one map only (Roy's, Nov 2026) |
+| 6.7 `MULTI_FLOOR_MAP` | 0 = one map only (the owner's, Nov 2026) |
 | 4.20 relocation | 0 located, 1 locating, 10 failed, 11 succeeded |
 
 Read properties with `client._safe_call("send", "get_properties", [...])`
@@ -38,8 +38,8 @@ and `_miot_did_slots`, as `_get_status_sync` does.
 - The live map only changes when someone asks for it (action 6.1, which the
   app sends too). Reading 6.3 alone gives the same frame for minutes.
 - Action 6.1 asks the robot to upload its map; it does not move it. Still
-  tell Roy before sending any action.
-- Roy's robot: one saved map (ground floor, 5 rooms "Room 1"-"Room 5", dock in
+  tell the owner before sending any action.
+- The owner's robot: one saved map (ground floor, 5 rooms "Room 1"-"Room 5", dock in
   Room 5). The loft (garage) is unmapped and got a new map with the same
   `map_id` (1) while it cleaned there; with multi-floor off, check that the
   ground floor survives each loft clean. On 6 Nov 2026 it did.

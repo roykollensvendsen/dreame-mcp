@@ -68,7 +68,7 @@ but not how much water is in the tank, and how full the bin is only as a
 warning once it is full. It does answer for a base's clean and dirty water
 tanks, but an L10s Plus base has none, so those readings are left out; the
 sentence names no model, so it stays true on any robot. Which
-properties the cloud answers was read from Roy's L10s Plus
+properties the cloud answers was read from the owner's L10s Plus
 (`dreame.vacuum.r2363a`) on 2026-11-14; `tests/test_voice_full_status.py`
 keeps that answer, and `FULL_STATUS` in `client.py` says what each one means.
 

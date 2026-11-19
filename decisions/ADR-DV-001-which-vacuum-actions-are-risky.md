@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Roy's choice, made when the bridge was set up (it runs the server
+Accepted. The owner's choice, made when the bridge was set up (it runs the server
 without `--ask-before-start`). Written down by Claude on 2026-11-10, as the plugin
 standard's rule 7 asks.
 
@@ -45,6 +45,6 @@ so a start that did arrive is not sent twice.
 
 ## Later
 
-On 2026-11-10 Roy chose to rename `vacuum_start` to `vacuum_clean_all`: by
+On 2026-11-10 the owner chose to rename `vacuum_start` to `vacuum_clean_all`: by
 voice, "start" and "stop" sounded alike (plugin standard, rule 1). What the
 tool does, and that it doesn't ask first, are unchanged.

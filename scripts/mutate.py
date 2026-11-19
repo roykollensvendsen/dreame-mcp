@@ -342,7 +342,7 @@ def _run_rules() -> int:
             continue
         RECOVERY.write_text(json.dumps({"file": rule["file"], "original": original, "mutated": bad}))
         path.write_text(bad)
-        # No time limit, on purpose (Roy's rule for mutation and ratchet runs): a suite cut
+        # No time limit, on purpose (the owner's rule for mutation and ratchet runs): a suite cut
         # short proves nothing. A mutation that makes the tests hang hangs the run, in plain
         # sight, until someone stops it; the recovery file then puts the line back.
         try:

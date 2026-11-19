@@ -62,7 +62,7 @@ def test_the_check_finds_start_and_stop():
 
 
 async def test_the_full_clean_is_not_called_start():
-    # Roy's choice, 2026-11-10: "start" and "stop" sounded alike by voice.
+    # The owner's choice, 2026-11-10: "start" and "stop" sounded alike by voice.
     assert "vacuum_start" not in await _tools()
 
 

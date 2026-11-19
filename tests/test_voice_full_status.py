@@ -1,6 +1,6 @@
 """The full status: everything the vacuum's cloud reports, problems first.
 
-The real limit: ``RECORDED`` is what the Dreame cloud answered for Roy's L10s Plus
+The real limit: ``RECORDED`` is what the Dreame cloud answered for the owner's L10s Plus
 (dreame.vacuum.r2363a) on 2026-11-14, one read-only get_properties per property, with
 the answer code kept and the device id left out. The fakes answer from it; no cloud is
 reached. What each number means is in client.py beside ``FULL_STATUS``.
@@ -177,7 +177,7 @@ async def test_a_full_status_says_what_it_cannot_report():
 
 
 # -- the mop --------------------------------------------------------------------------
-# Live on Roy's L10s Plus, 18.11: with the tank and its mop fitted, 4.6 read 1 and 4.53
+# Live on the owner's L10s Plus, 18.11: with the tank and its mop fitted, 4.6 read 1 and 4.53
 # read 0, and the full status said "mop pad not attached" every time. In the reference,
 # 4.53 counts 0 as fitted, and only on robots that can drop their mop pad; this one can't,
 # so 4.53 is not read. Only 4.6 = 10 ("fitted with the mop") says the mop is on.

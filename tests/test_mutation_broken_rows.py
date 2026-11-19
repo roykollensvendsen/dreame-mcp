@@ -3,7 +3,7 @@
 Such a mutant stops the module importing, so every test in its files errors and the run
 would count the rule as caught. The runner compiles each mutant first and reports a row that
 does not compile as BROKEN, without running the suite, and fails the run. The idea comes from
-easee-mcp #33 (bf1dd19, GPL-3.0-or-later, Roy's own fork), adapted to this runner.
+easee-mcp #33 (bf1dd19, GPL-3.0-or-later, the owner's own fork), adapted to this runner.
 """
 
 from __future__ import annotations

@@ -27,7 +27,7 @@ from .client import DreameStatus
 
 SWEEPING, IDLE, PAUSED, RETURNING, CHARGING_STATE, CHARGED_STATE = 1, 2, 3, 5, 6, 13
 CHARGING, NOT_CHARGING, CHARGED = 1, 2, 3
-#: The model the pretend vacuum reports: Roy's L10s Plus, whose readings it mirrors.
+#: The model the pretend vacuum reports: the owner's L10s Plus, whose readings it mirrors.
 MODEL = "dreame.vacuum.r2363a"
 CHARGE_EVERY = 6.0
 DRAIN_EVERY = 12.0
