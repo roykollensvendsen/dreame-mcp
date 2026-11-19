@@ -315,3 +315,9 @@ name = "a base with code that cannot be measured fails the check"
 file = "scripts/ratchet.py"
 find = '^ {4}if levels is None:$'
 replace = 'if False:'
+
+[[rule]]
+name = "a base whose files cannot be listed fails the check"
+file = "scripts/ratchet.py"
+find = '^ {4}if listed\.returncode:$'
+replace = 'if False:'
