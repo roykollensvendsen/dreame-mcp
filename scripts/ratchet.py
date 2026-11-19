@@ -362,6 +362,18 @@ def _in_git(*args: str) -> bool:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, check=False).returncode == 0
 
 
+def _python_under_src(ref: str) -> bool:
+    """Whether the commit ``ref`` has any Python file under src."""
+    listed = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "--end-of-options", ref, "--", SOURCE.relative_to(ROOT).as_posix()],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return any(name.endswith(".py") for name in listed.stdout.splitlines())
+
+
 def base_for(ref: str) -> dict[str, Any] | None:
     """The levels of the base ``ref``, measured in a copy. None only when the base has no code
     to measure yet (the first pull request of a new repository), which is said plainly.
@@ -370,9 +382,11 @@ def base_for(ref: str) -> dict[str, Any] | None:
     ratchet with nothing to compare with would pass every level that got worse (19.11).
     """
     # RULE: a base that is not a commit fails the check
-    if not _in_git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"):
+    if not _in_git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"):
         raise BaseUnreadable(f"The base {ref} is not a commit in this checkout, so nothing can be compared.")
-    if not _in_git("cat-file", "-e", f"{ref}:{PACKAGE.relative_to(ROOT).as_posix()}"):
+    # No Python under src at all, not only no package where it is now: code moved to another
+    # package (the vacuum-mcp plan) is still code to compare with.
+    if not _python_under_src(ref):
         print(f"The base {ref} has no code to measure yet (a first pull request), so there is nothing to compare with.")
         return None
     levels = measure_at(ref)
