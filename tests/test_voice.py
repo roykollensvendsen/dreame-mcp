@@ -11,6 +11,7 @@ import logging
 import subprocess
 import sys
 
+import pytest
 from fastmcp import Client
 
 from dreame_mcp.client import DreameStatus
@@ -153,6 +154,36 @@ async def test_nothing_to_stop_on_the_dock():
 async def test_already_home():
     a = await _call(_vacuum(SimulatedVacuum()), "vacuum_go_home")
     assert a["say"].startswith("It's already home")
+
+
+class _OnTheDockDoing(SimulatedVacuum):
+    """A robot on its charged dock while it does something else there (3.2 = 3)."""
+
+    def __init__(self, code: int):
+        super().__init__()
+        self._code = code
+
+    async def get_status(self) -> DreameStatus:
+        status = await super().get_status()
+        return DreameStatus(raw={**status.raw, "2.1": self._code, "3.2": 3})
+
+
+#: Drying (8), washing (9), updating (14) and waiting (29), all on a charged dock.
+ON_THE_DOCK_DOING = [8, 9, 14, 29]
+
+
+@pytest.mark.parametrize("code", ON_THE_DOCK_DOING)
+def test_a_robot_busy_on_its_charged_dock_is_docked_and_fully_charged(code):
+    r = _reading(**{"2_1": code, "3_1": 100, "3_2": 3})
+    assert r.docked and r.fully_charged
+
+
+@pytest.mark.parametrize("code", ON_THE_DOCK_DOING)
+async def test_a_robot_busy_on_its_charged_dock_is_not_sent_home(code):
+    sim = _OnTheDockDoing(code)
+    a = await _call(_vacuum(sim), "vacuum_go_home")
+    assert a["say"].startswith("It's already home")
+    assert sim.sent == []
 
 
 async def test_a_simulated_answer_says_so():

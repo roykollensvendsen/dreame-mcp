@@ -148,6 +148,9 @@ class Reading:
     activity: str | None
     battery: int | None
     charging: bool
+    #: The backend's own word on the dock, or None to go by the neutral state alone.
+    on_dock: bool | None = None
+    full: bool | None = None
 
     @classmethod
     def of(cls, readings: Readings) -> Reading:
@@ -156,6 +159,8 @@ class Reading:
             activity=_known(readings.activity),
             battery=_known(readings.battery),
             charging=_known(readings.charging) is True,
+            on_dock=_known(readings.on_dock),
+            full=_known(readings.fully_charged),
         )
 
     @property
@@ -164,11 +169,13 @@ class Reading:
 
     @property
     def docked(self) -> bool:
+        if self.on_dock is not None:
+            return self.on_dock
         return self.name in DOCKED_STATES or self.charging
 
     @property
     def fully_charged(self) -> bool:
-        return self.name == "docked"
+        return self.full if self.full is not None else self.name == "docked"
 
     @property
     def cleaning(self) -> bool:

@@ -50,6 +50,8 @@ class Readings:
     activity: Reading[str]
     battery: Reading[int]
     charging: Reading[bool]
+    on_dock: Reading[bool]
+    fully_charged: Reading[bool]
     error: Reading[tuple[str, ...]]
     area: Reading[int]
     time: Reading[int]

@@ -93,7 +93,7 @@ def test_on_the_l10s_plus_the_bin_fill_is_not_reported():
 def test_a_model_not_in_the_table_is_trusted_only_on_the_common_readings():
     readings = _read(model="dreame.vacuum.unknown")
     trusted = {f for f in FIELDS if getattr(readings, f).trusted}
-    assert trusted == {"state", "activity", "battery", "charging", "error", "area", "time"}
+    assert trusted == {"state", "activity", "battery", "charging", "on_dock", "fully_charged", "error", "area", "time"}
     assert dreame.capabilities(None).commands == COMMANDS
 
 
