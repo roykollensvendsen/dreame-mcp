@@ -205,10 +205,15 @@ def test_a_run_trusts_its_folder_only_when_it_is_really_ours(project, tmp_path, 
     mutate.MUTATE_TMP.chmod(0o700)
 
     other = os.getuid() + 1
-    monkeypatch.setattr(mutate.os, "getuid", lambda: other)  # as if made by another
-    with pytest.raises(SystemExit, match="is not a folder of yours"):
-        mutate.sweep()
-    monkeypatch.undo()
+    # Only getuid is put back afterwards: monkeypatch.undo() would also undo the fixture's
+    # MUTATE_TMP, ROOT and TABLE, and the sweep below would run on the real checkout's folder.
+    with monkeypatch.context() as as_another:
+        as_another.setattr(mutate.os, "getuid", lambda: other)  # as if made by another
+        with pytest.raises(SystemExit, match="is not a folder of yours"):
+            mutate.sweep()
+    # Still the project's own folder: a sweep of the real checkout's folder would make it in
+    # the shared temp folder and leave it behind (found 19.11).
+    assert mutate.MUTATE_TMP.is_relative_to(tmp_path)
     mutate.sweep()  # really ours: fine
 
 
