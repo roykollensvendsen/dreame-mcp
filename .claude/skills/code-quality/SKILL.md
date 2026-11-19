@@ -35,7 +35,7 @@ the page ever disagree, and fix the table. The page labels the last cell
 What is measured (`scripts/ratchet.py`): coverage of the whole `dreame_mcp`
 package; complexity and copied code over everything in `src/`; layers and
 cycles among the package's modules; lint over `src`, `tests` and the two
-scripts; types over `src`. So Sandra's modules (`server.py`, `client.py`,
+scripts; types over `src`. So upstream's modules (`server.py`, `client.py`,
 `portmanteau.py` and the rest) count as much as `voice.py`.
 
 A cell can also read **exempt** (section 4). Exempt is never green, and nothing
@@ -56,8 +56,8 @@ uv run python scripts/ratchet.py check --base fork/voice         # what your bra
 uv run python scripts/mutate.py                                  # each rule switched off in turn (about three minutes)
 ```
 
-`fork` is the remote for `roykollensvendsen/dreame-mcp` in Roy's clone;
-`origin` there is Sandra's repository. Use whichever remote points at the fork.
+`fork` is the remote for `roykollensvendsen/dreame-mcp` in the owner's clone;
+`origin` there is the upstream repository. Use whichever remote points at the fork.
 
 For one cell at a time:
 
@@ -74,14 +74,14 @@ The complexity, layer, cycle and duplication counts are functions in
 the file `measure --out` writes lists the worst function's score per module, so
 the module to open first is the one with the highest number. The time budget
 is the one thing in `quality.json` (90 seconds, plus 25 %), and it changes only
-by hand, with Roy's yes.
+by hand, with the owner's yes.
 
 ## 3. Fix the worst cell, test-first
 
 Work on one cell per pull request, the reddest first. Everything here follows
 CONTRIBUTING.md: a failing test before the code, one topic per pull request, a
 conventional commit subject (the `commits` job refuses others), commits
-through the `write-commit` skill. A change to code in Sandra's modules follows
+through the `write-commit` skill. A change to code in upstream's modules follows
 "Where a change goes" in CONTRIBUTING.md; tests for them may go to voice.
 
 The suite uses the simulator and fakes. Never command the real robot, and
@@ -139,7 +139,7 @@ function both places call, with the tests green before and after, as
 **Tests over their budget.** Find the slowest with `--durations=15`. The usual
 cause is a real wait: a sleep, a timeout, a subprocess. Make the wait
 injectable and pass a fake clock or a short timeout in the test. Raising the
-budget is Roy's decision, not a fix.
+budget is the owner's decision, not a fix.
 
 **Lint, type errors or a cycle.** Fix them as they are reported; a cycle is
 broken the same way as a layer breach, by moving shared code down.
@@ -147,7 +147,7 @@ broken the same way as a layer breach, by moving shared code down.
 Before you push, run the gates in CONTRIBUTING.md and the ratchet against
 voice. The ratchet refuses anything worse than voice; a pull request that must
 make a measure worse says why on a line of its own in its text,
-`Ratchet-Exception: <measure> - why`, and that is Roy's call too. The measure
+`Ratchet-Exception: <measure> - why`, and that is the owner's call too. The measure
 there is the ratchet's name for it: `coverage`, `mutation`, `tests`,
 `lint_errors`, `type_errors`, `cycles`, `layer_violations`, `duplication`,
 `complexity` or `test_seconds`.
@@ -160,7 +160,7 @@ hardware. Such a cell may be marked exempt, and only like this:
 
 - **A written reason**, saying why meeting the limit would make the code worse,
   not that it would take long.
-- **Roy's yes.** Ask through the manager session (`claude-voice-work`) with the
+- **The owner's yes.** Ask through the manager session (`claude-voice-work`) with the
   exact entry and your recommendation; never add one on your own judgement,
   and never count silence as a yes.
 - **In this repository's own `quality.toml`**, at its root, in a pull request
@@ -171,7 +171,7 @@ hardware. Such a cell may be marked exempt, and only like this:
 [[exempt]]
 measure = "complexity"
 reason = "the tool table is one long match on the tool's name"
-approved = "Roy, 2026-11-11, in pull request #42"
+approved = "the owner, 2026-11-11, in pull request #42"
 ```
 
 The bridge reads `quality.toml` from its clone of this repository. The page
@@ -183,7 +183,7 @@ ids are `coverage`, `mutation`, `tests`, `problems`, `cycles`, `layers`,
 
 ## 5. Land it
 
-Push your own branch to the fork, never to Sandra's repository, and open the
+Push your own branch to the fork, never to the upstream repository, and open the
 pull request against voice:
 
 ```sh

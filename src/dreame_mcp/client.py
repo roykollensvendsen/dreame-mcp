@@ -289,7 +289,7 @@ _SEGMENT_CLEANING = 18
 
 
 #: What a full status reads, as (siid, piid). The numbers are the MIoT spec's for a Dreame
-#: vacuum, the meanings the reference's names for them; checked against Roy's L10s Plus
+#: vacuum, the meanings the reference's names for them; checked against the owner's L10s Plus
 #: (dreame.vacuum.r2363a) on 2026-11-14, which answered every one.
 FULL_STATUS: tuple[tuple[int, int], ...] = (
     (2, 1),  # state

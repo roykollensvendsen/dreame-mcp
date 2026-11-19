@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure the code's quality levels, and refuse a change that makes one worse.
 
-The levels are the ones Roy's phone page shows for every voice plugin:
+The levels are the ones the owner's phone page shows for every voice plugin:
 coverage, the mutation tally (scripts/mutate.py), the number of tests, lint and
 type errors, import cycles, imports that break the layers, the share of copied code, the most tangled function
 in each module, and the suite's time. A push to the voice branch measures them

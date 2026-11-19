@@ -1,11 +1,11 @@
 ---
 name: voice-plugin
-description: Change, test or roll out the vacuum's voice plugin (dreame-voice-mcp) that the claude-voice bridge offers Roy in the Claude app. Use when a vacuum_* tool or its spoken answer changes, when the plugin misbehaves by voice, or when its bridge entry, approval or arguments change.
+description: Change, test or roll out the vacuum's voice plugin (dreame-voice-mcp) that the claude-voice bridge offers the owner in the Claude app. Use when a vacuum_* tool or its spoken answer changes, when the plugin misbehaves by voice, or when its bridge entry, approval or arguments change.
 ---
 
 # The vacuum voice plugin
 
-`dreame-voice-mcp` (`src/dreame_mcp/voice.py`) is served to Roy's voice
+`dreame-voice-mcp` (`src/dreame_mcp/voice.py`) is served to the owner's voice
 through the claude-voice bridge as the plugin `vacuum`. The robot is a Dreame
 **L10s Plus** (`dreame.vacuum.r2363a`), not the D20 Pro Plus that upstream's
 README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md).
@@ -15,7 +15,7 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
 - The bridge owns `[plugins.vacuum]` in `~/.config/claude-voice/config.toml`;
   the session `claude-voice-work` edits it, never this one.
 - It runs `uv run dreame-voice-mcp …` **in this checkout**, so whatever branch
-  is checked out here is what Roy talks to. Work on another branch in a
+  is checked out here is what the owner talks to. Work on another branch in a
   `git worktree`, never by switching branches here, and keep this one passing.
 - Simulated: `["run", "dreame-voice-mcp", "--simulate"]`.
   Real: `["run", "dreame-voice-mcp", "--secrets-dir", "/home/roy/.config/dreame"]`.
@@ -27,7 +27,7 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
 
 1. Change `voice.py`, keep `uv run pytest tests/test_voice.py` green.
 2. Any change to the command, args, folder, tool list or a tool's inputs voids
-   Roy's approval. Tell `claude-voice-work`; Roy runs
+   the owner's approval. Tell `claude-voice-work`; the owner runs
    `claude-voice plugins approve vacuum` himself. Never approve for him.
 3. Try it simulated first, then one real `vacuum_status` (read-only), before
    anything that moves the robot.
@@ -41,7 +41,7 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
 
 ## Lessons
 
-- Every answer that is not a success ends with what to do next (Roy's rule,
+- Every answer that is not a success ends with what to do next (the owner's rule,
   2026-11-11). `Unavailable(wrong, then)` keeps the two apart, so "The vacuum
   wasn't told anything." goes between them; `tests/test_voice_next_step.py`
   scans the source for every failure.
@@ -63,5 +63,5 @@ README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md)
 - `vacuum_clean_rooms` maps names to map segment ids from the same map, then
   sends START_CUSTOM (4.1, status 18, rooms in 4.10) as the reference's
   `clean_segment` does. Its tests use the simulator and a fake `_safe_call`;
-  the first real call is Roy's, not ours. A new tool or input changes the
-  plugin's fingerprint, so Roy re-approves before the bridge restart.
+  the first real call is the owner's, not ours. A new tool or input changes the
+  plugin's fingerprint, so the owner re-approves before the bridge restart.

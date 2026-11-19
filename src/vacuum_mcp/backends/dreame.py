@@ -3,7 +3,7 @@
 This is the only place in vacuum_mcp that knows Dreame's codes (siid.piid, state and
 error numbers) and which Dreame model reports what. The numbers are the MIoT spec's for
 a Dreame vacuum, the meanings the reference project's names for them (client.FULL_STATUS
-says where each is read). Checked against Roy's L10s Plus (dreame.vacuum.r2363a).
+says where each is read). Checked against the owner's L10s Plus (dreame.vacuum.r2363a).
 """
 
 from __future__ import annotations

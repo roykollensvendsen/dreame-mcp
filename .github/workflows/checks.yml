@@ -1,8 +1,8 @@
-# Checks for the voice server's home, Roy's fork. The workflow is named
+# Checks for the voice server's home, the owner's fork. The workflow is named
 # `checks`, like garage-door's and tv-mcp's, because the bridge's phone page
 # reads the levels the quality job keeps with each push to voice. It runs only in
 # roykollensvendsen/dreame-mcp, on the `voice` branch and on pull requests to
-# it. Upstream's ci.yml stays as Sandra keeps it, for pull requests to her.
+# it. Upstream's ci.yml stays as upstream keeps it, for pull requests there.
 name: checks
 
 on:

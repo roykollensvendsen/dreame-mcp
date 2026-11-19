@@ -1,6 +1,6 @@
 """The vacuum layer: neutral readings, and a Dreame backend that alone knows Dreame's codes.
 
-Design vacuum-mcp-v1.md (v1.1) step 1, first slice. Readings are what Roy's L10s Plus
+Design vacuum-mcp-v1.md (v1.1) step 1, first slice. Readings are what the owner's L10s Plus
 (dreame.vacuum.r2363a) reported, made up only where a test says so.
 """
 

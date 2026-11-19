@@ -38,7 +38,7 @@ def _connected(did="42"):
 
 
 def test_the_cleaned_area_and_time_keep_the_robots_units(monkeypatch):
-    # The real limit: during a clean on 2026-11-14 Roy's L10s Plus reported 4.3 = 17 and
+    # The real limit: during a clean on 2026-11-14 the owner's L10s Plus reported 4.3 = 17 and
     # 4.2 = 17 after about 17 minutes, so square metres and minutes, not cm² and seconds.
     c = _connected()
     _answering(monkeypatch, c, [{"siid": 4, "piid": 2, "value": 17}, {"siid": 4, "piid": 3, "value": 17}])
@@ -49,7 +49,7 @@ def test_the_cleaned_area_and_time_keep_the_robots_units(monkeypatch):
 @pytest.mark.parametrize(("code", "charging"), [(1, True), (2, False), (3, False), (5, False)])
 def test_only_charging_status_1_counts_as_charging(monkeypatch, code, charging):
     # DreameVacuumChargingStatus: 1 charging, 2 not charging, 3 charged, 5 going back to charge.
-    # On its dock on 2026-11-14, fully charged, Roy's L10s Plus reported 3.2 = 1.
+    # On its dock on 2026-11-14, fully charged, the owner's L10s Plus reported 3.2 = 1.
     c = _connected()
     _answering(monkeypatch, c, [{"siid": 3, "piid": 2, "value": code}])
     assert c._get_status_sync().is_charging is charging

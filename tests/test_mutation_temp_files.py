@@ -124,7 +124,7 @@ def test_removing_a_missing_folder_is_fine(tmp_path):
 
 
 def test_a_suite_run_has_no_time_limit(project, monkeypatch):
-    # Roy's rule: mutation runs are never time-limited, since a suite cut short proves
+    # The owner's rule: mutation runs are never time-limited, since a suite cut short proves
     # nothing. A mutation that makes the tests hang therefore hangs the run, in plain sight.
     seen: dict = {}
 
