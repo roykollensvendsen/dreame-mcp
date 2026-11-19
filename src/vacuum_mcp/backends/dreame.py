@@ -146,35 +146,62 @@ def _consumables(raw: dict[str, Any]) -> dict[str, dict[str, int]] | None:
     return wear or None
 
 
+def _looked_up[V](value: int | None, table: dict[int, V]) -> V | None:
+    return None if value is None else table.get(value)
+
+
+def _errors(raw: dict[str, Any], trusted: frozenset[str]) -> tuple[str, ...] | None:
+    """Every problem this model can be trusted to name, in words; None when none was read."""
+    # Only keys the model is trusted on count as a read: "no problems" needs a trusted read.
+    read_keys = {key for key, source in _PROBLEM_SOURCES.items() if key in raw and source in trusted}
+    if "error" not in trusted or not read_keys:
+        return None
+    # A problem drawn from another reading is named only when the model trusts that reading.
+    found = [_problem_words(key, _num(raw, key)) for key in _PROBLEM_SOURCES if key in read_keys]
+    return tuple(dict.fromkeys(words for words in found if words))
+
+
+def _problem_words(key: str, value: int | None) -> str | None:
+    """The words for one problem key's value, or None when it names no problem."""
+    if not value:
+        return None
+    named = {
+        "2.2": lambda: _problem(value),
+        "4.35": lambda: _problem(value),
+        "4.41": lambda: LOW_WATER.get(value),
+        "27.3": lambda: _bag_problem(DUST_BAG.get(value)),
+        "15.5": lambda: "the base didn't empty the bin" if value == 2 else None,
+    }
+    return named[key]()
+
+
+def _bag_problem(bag: str | None) -> str | None:
+    return f"the dust bag in the base is {bag}" if bag in ("not fitted", "to be checked") else None
+
+
+#: Where each problem key comes from: the reading a model must be trusted on to name it.
+_PROBLEM_SOURCES = {"2.2": "error", "4.35": "error", "4.41": "water_tank", "27.3": "dust_bag", "15.5": "auto_empty"}
+
+
 def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -> Readings:
     """One read's properties ({"siid.piid": value}) as neutral readings for this model."""
     trusted = capabilities(model).readings
     code, charging, tank, auto = _num(raw, "2.1"), _num(raw, "3.2"), _num(raw, "4.6"), _num(raw, "15.1")
-    bag = None if (b := _num(raw, "27.3")) is None else DUST_BAG.get(b)
-    errors = [_problem(c) for key in ("2.2", "4.35") if (c := _num(raw, key))]
-    # A problem drawn from another reading is named only when the model trusts that reading.
-    if "water_tank" in trusted and (low := LOW_WATER.get(_num(raw, "4.41") or 0)):
-        errors.append(low)
-    if "dust_bag" in trusted and bag in ("not fitted", "to be checked"):
-        errors.append(f"the dust bag in the base is {bag}")
-    if "auto_empty" in trusted and _num(raw, "15.5") == 2:
-        errors.append("the base didn't empty the bin")
-    reported = any(key in raw for key in ("2.2", "4.35", "4.41", "27.3", "15.5"))
     values: dict[str, Any] = {
         "state": _state(code, charging),
         "battery": _num(raw, "3.1"),
         "charging": None if charging is None else charging == CHARGING,
-        "error": tuple(dict.fromkeys(errors)) if reported else None,
+        "error": _errors(raw, trusted),
         "area": _num(raw, "4.3"),
         "time": _num(raw, "4.2"),
         "done": _num(raw, "4.63"),
-        "water_tank": None if tank is None else WATER_TANK.get(tank),
+        "water_tank": _looked_up(tank, WATER_TANK),
         # Only a tank fitted with its mop (10) says the mop is on; 4.53 is never read.
         "mop_pad": "attached" if tank == 10 else None,
-        "water_flow": None if (flow := _num(raw, "4.5")) is None else WATER_FLOW.get(flow),
+        "water_flow": _looked_up(_num(raw, "4.5"), WATER_FLOW),
         "dust_bin": None,  # no property reports how full the bin is
         "auto_empty": None if auto is None else bool(auto),
-        "dust_bag": bag,
+        "dust_bag": _looked_up(_num(raw, "27.3"), DUST_BAG),
         "consumables": _consumables(raw),
     }
     return Readings(**{f: Reading(values[f], f in trusted, as_of, source) for f in FIELDS})
