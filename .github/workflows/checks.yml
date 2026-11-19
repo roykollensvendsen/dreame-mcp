@@ -15,9 +15,11 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request stops that pull request's stale run. Every other run, on
+# the base branch, a tag or by hand, is its own group and always runs to the end.
 concurrency:
-  group: checks-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
