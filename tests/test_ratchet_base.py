@@ -44,7 +44,7 @@ def repo(tmp_path, monkeypatch) -> Path:
     _git(root, "add", ".")
     _git(root, "commit", "-q", "-m", "code")
     monkeypatch.setattr(ratchet, "ROOT", root)
-    monkeypatch.setattr(ratchet, "PACKAGE", root / "src" / "dreame_mcp")
+    monkeypatch.setattr(ratchet, "SOURCE", root / "src")
     return root
 
 
@@ -64,6 +64,26 @@ def test_a_base_with_no_code_yet_passes_and_says_so(repo, monkeypatch, capsys):
     monkeypatch.setattr(ratchet, "measure_at", lambda ref: pytest.fail("measured a base with no code"))
     assert ratchet.base_for("empty") is None
     assert "has no code to measure yet" in capsys.readouterr().out
+
+
+def test_a_base_with_code_in_another_package_is_never_said_to_have_no_code(repo, monkeypatch, capsys):
+    """Code moved out of dreame_mcp (the vacuum-mcp plan) is still code to compare with."""
+    _git(repo, "rm", "-q", "-r", "src/dreame_mcp")
+    other = repo / "src" / "other_pkg"
+    other.mkdir(parents=True)
+    (other / "x.py").write_text("")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "moved")
+    monkeypatch.setattr(ratchet, "measure_at", lambda ref: None)
+    with pytest.raises(ratchet.BaseUnreadable, match="could not be measured"):
+        ratchet.base_for("HEAD")
+    assert "no code to measure yet" not in capsys.readouterr().out
+
+
+def test_a_ref_that_looks_like_an_option_is_not_a_commit(repo, monkeypatch):
+    monkeypatch.setattr(ratchet, "measure_at", lambda ref: pytest.fail("measured an option"))
+    with pytest.raises(ratchet.BaseUnreadable, match="is not a commit"):
+        ratchet.base_for("--all")
 
 
 def test_a_base_with_code_is_measured(repo, monkeypatch):
