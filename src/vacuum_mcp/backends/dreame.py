@@ -96,7 +96,7 @@ DUST_BAG = {0: "fitted", 1: "not fitted", 2: "to be checked"}
 
 # -- what each model can do, and which readings it is trusted on --------------------
 #: Readings any Dreame vacuum gives the same way, from the MIoT spec.
-_COMMON = frozenset({"state", "activity", "battery", "charging", "error", "area", "time"})
+_COMMON = frozenset({"state", "activity", "battery", "charging", "on_dock", "fully_charged", "error", "area", "time"})
 #: Per model. Only this table knows a model's quirks.
 MODELS: dict[str, Capabilities] = {
     # L10s Plus. Its mop is part of the water tank module, so 4.53 (inverted, and only
@@ -173,6 +173,11 @@ def _consumables(raw: dict[str, Any]) -> dict[str, dict[str, int]] | None:
     return wear or None
 
 
+def _either(by_state: bool, by_charging: bool, code: int | None, charging: int | None) -> bool | None:
+    """True when the state or the charging code says so; None when neither was read."""
+    return None if code is None and charging is None else by_state or by_charging
+
+
 def _looked_up[V](value: int | None, table: dict[int, V]) -> V | None:
     return None if value is None else table.get(value)
 
@@ -220,6 +225,10 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
         "activity": _activity(code, charging, _num(raw, "2.2")),
         "battery": _num(raw, "3.1"),
         "charging": None if charging is None else charging == CHARGING,
+        # On the dock by its state, or by charging or charged whatever it is doing there
+        # (drying, washing, updating or waiting on the dock: 3.2 = 3).
+        "on_dock": _either(code in DOCKED, charging in (CHARGING, CHARGED), code, charging),
+        "fully_charged": _either(code == 13, charging == CHARGED, code, charging),
         "error": _errors(raw, trusted),
         "area": _num(raw, "4.3"),
         "time": _num(raw, "4.2"),
