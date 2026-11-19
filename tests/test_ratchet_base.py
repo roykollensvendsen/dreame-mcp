@@ -86,6 +86,22 @@ def test_a_ref_that_looks_like_an_option_is_not_a_commit(repo, monkeypatch):
         ratchet.base_for("--all")
 
 
+def test_a_base_whose_files_cannot_be_listed_fails_the_check(repo, monkeypatch, capsys):
+    """An ls-tree that fails lists nothing, which must not read as "no code yet"."""
+    real = ratchet.subprocess.run
+
+    def run(command, *args, **kwargs):
+        if command[:2] == ["git", "ls-tree"]:
+            return ratchet.subprocess.CompletedProcess(command, 128, stdout="", stderr="fatal: bad tree")
+        return real(command, *args, **kwargs)
+
+    monkeypatch.setattr(ratchet.subprocess, "run", run)
+    monkeypatch.setattr(ratchet, "measure_at", lambda ref: pytest.fail("measured a base it could not list"))
+    with pytest.raises(ratchet.BaseUnreadable, match="could not be listed"):
+        ratchet.base_for("main")
+    assert "no code to measure yet" not in capsys.readouterr().out
+
+
 def test_a_base_with_code_is_measured(repo, monkeypatch):
     monkeypatch.setattr(ratchet, "measure_at", lambda ref: {"tests": 1, "ref": ref})
     assert ratchet.base_for("main") == {"tests": 1, "ref": "main"}

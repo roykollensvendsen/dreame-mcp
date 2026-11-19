@@ -371,6 +371,9 @@ def _python_under_src(ref: str) -> bool:
         text=True,
         check=False,
     )
+    # RULE: a base whose files cannot be listed fails the check
+    if listed.returncode:
+        raise BaseUnreadable(f"The files of the base {ref} could not be listed, so nothing can be compared.")
     return any(name.endswith(".py") for name in listed.stdout.splitlines())
 
 
