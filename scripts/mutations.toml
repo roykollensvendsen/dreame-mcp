@@ -291,3 +291,9 @@ name = "only one mutation run goes at a time in a checkout"
 file = "scripts/mutate.py"
 find = '^\s+checkout = only_run\(\)$'
 replace = 'checkout = os.open(RECOVERY.parent, os.O_RDONLY)'
+
+[[rule]]
+name = "a row that breaks the code is reported as broken"
+file = "scripts/mutate.py"
+find = '^ {8}if why:$'
+replace = 'if False:'

@@ -16,8 +16,9 @@ killed outright (kill -9), the next run puts it back first; to do only that:
 
     uv run python scripts/mutate.py --repair-only
 
-It exits 1 when a rule survives, is caught only by other tests, or when a file
-changed while it was mutated (that file is then left as it is).
+It exits 1 when a rule survives, is caught only by other tests, when a row's replacement
+is not valid code (BROKEN: the suite is not run for it), or when a file changed while it
+was mutated (that file is then left as it is).
 """
 
 from __future__ import annotations
@@ -68,6 +69,22 @@ def target_line(lines: list[str], rule: dict) -> int:
             if seen == want:
                 return i
     raise SystemExit(f"{rule['name']}: no line {want} matching {rule['find']!r} in {rule['file']}")
+
+
+def broken(file: str, text: str) -> str | None:
+    """Why a mutated Python file no longer compiles, or None when it does.
+
+    A replacement cut off mid-expression stops the module importing, so every test in its
+    files errors and the rule would count as caught when the row itself is wrong. (The idea
+    is from easee-mcp #33, bf1dd19, also GPL-3.0-or-later.)
+    """
+    if not file.endswith(".py"):
+        return None
+    try:
+        compile(text, file, "exec")
+    except SyntaxError as e:
+        return f"line {e.lineno}: {e.msg}"
+    return None
 
 
 def mutated(text: str, rule: dict) -> str:
@@ -312,11 +329,17 @@ def _run_rules() -> int:
     if not table:
         print(f"no rules in {TABLE.relative_to(ROOT)}")
         return 0
-    survived, by_others, changed = [], [], []
+    survived, by_others, changed, bad_rows = [], [], [], []
     for rule in table:
         path = ROOT / rule["file"]
         original = path.read_text()
         bad = mutated(original, rule)
+        why = broken(rule["file"], bad)
+        # RULE: a row that breaks the code is reported as broken
+        if why:
+            bad_rows.append(rule["name"])
+            print(f"BROKEN   {rule['name']}: the replacement is not valid code ({why})")
+            continue
         RECOVERY.write_text(json.dumps({"file": rule["file"], "original": original, "mutated": bad}))
         path.write_text(bad)
         # No time limit, on purpose (Roy's rule for mutation and ratchet runs): a suite cut
@@ -341,15 +364,18 @@ def _run_rules() -> int:
             verdict = "SURVIVED"
             survived.append(rule["name"])
         print(f"{verdict} {rule['name']} ({len(failed)} failed)")
-    print(f"\n{len(table) - len(survived) - len(by_others)}/{len(table)} rules failed the test named after them")
+    print(
+        f"\n{len(table) - len(survived) - len(by_others) - len(bad_rows)}/{len(table)} rules failed the test named after them"
+    )
     for label, names in (
         ("SURVIVED, so no test guards them", survived),
         ("caught only by other tests", by_others),
+        ("broken rows, so nothing was tested; make each a whole valid line", bad_rows),
         ("changed while mutated, left as they are", changed),
     ):
         if names:
             print(f"{label}: {', '.join(names)}")
-    return 1 if survived or by_others or changed else 0
+    return 1 if survived or by_others or bad_rows or changed else 0
 
 
 if __name__ == "__main__":
