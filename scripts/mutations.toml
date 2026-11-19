@@ -303,3 +303,15 @@ name = "only readings the model is trusted on count as a problems read"
 file = "src/vacuum_mcp/backends/dreame.py"
 find = 'read_keys = \{key for key, source in _PROBLEM_SOURCES'
 replace = 'read_keys = {key for key in _PROBLEM_SOURCES if key in raw}'
+
+[[rule]]
+name = "a base that is not a commit fails the check"
+file = "scripts/ratchet.py"
+find = 'if not _in_git\("rev-parse", "--verify"'
+replace = 'if False:'
+
+[[rule]]
+name = "a base with code that cannot be measured fails the check"
+file = "scripts/ratchet.py"
+find = '^ {4}if levels is None:$'
+replace = 'if False:'

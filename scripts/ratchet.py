@@ -354,6 +354,34 @@ def measure_at(ref: str) -> dict[str, Any] | None:
             subprocess.run(["git", "worktree", "remove", "--force", str(copy)], cwd=ROOT, check=False)
 
 
+class BaseUnreadable(Exception):
+    """The base cannot be compared with, so the check must not pass."""
+
+
+def _in_git(*args: str) -> bool:
+    return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, check=False).returncode == 0
+
+
+def base_for(ref: str) -> dict[str, Any] | None:
+    """The levels of the base ``ref``, measured in a copy. None only when the base has no code
+    to measure yet (the first pull request of a new repository), which is said plainly.
+
+    A base that is not a commit, or has code but cannot be measured, raises BaseUnreadable: a
+    ratchet with nothing to compare with would pass every level that got worse (19.11).
+    """
+    # RULE: a base that is not a commit fails the check
+    if not _in_git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"):
+        raise BaseUnreadable(f"The base {ref} is not a commit in this checkout, so nothing can be compared.")
+    if not _in_git("cat-file", "-e", f"{ref}:{PACKAGE.relative_to(ROOT).as_posix()}"):
+        print(f"The base {ref} has no code to measure yet (a first pull request), so there is nothing to compare with.")
+        return None
+    levels = measure_at(ref)
+    # RULE: a base with code that cannot be measured fails the check
+    if levels is None:
+        raise BaseUnreadable(f"The base {ref} has code but could not be measured, so nothing can be compared.")
+    return levels
+
+
 # -- comparing ----------------------------------------------------------------
 
 
@@ -449,11 +477,13 @@ def main() -> int:
             base = json.loads(args.levels.read_text())
         if base is None:
             print(f"The base {args.base} kept no levels; measuring it in a copy.")
-            base = measure_at(args.base)
+            try:
+                base = base_for(args.base)
+            except BaseUnreadable as why:
+                print(why)
+                return 1
         now = measure(skip_mutation=args.skip_mutation and base is not None, recorded=base)
-        if base is None:
-            print("The base could not be measured, so there is nothing to compare with.")
-        else:
+        if base is not None:
             found = compare(base, now, budget(ROOT / "quality.json"), exceptions(os.environ.get("RATCHET_EXCEPTIONS")))
             for line in found:
                 print(f"WORSE: {line}")
