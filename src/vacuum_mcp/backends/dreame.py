@@ -244,7 +244,9 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
         "dust_bag": _looked_up(_num(raw, "27.3"), DUST_BAG),
         "consumables": _consumables(raw),
     }
-    lagging = LAGS_ON_THE_DOCK if values["on_dock"] else frozenset()
+    # Not known to be off the dock (on it, or not read) counts as on it: that only adds the note.
+    # RULE: a tank whose dock is unknown comes from the cache
+    lagging = LAGS_ON_THE_DOCK if values["on_dock"] is not False else frozenset()
     return Readings(**{f: Reading(values[f], f in trusted, as_of, _source(f, lagging, source)) for f in FIELDS})
 
 

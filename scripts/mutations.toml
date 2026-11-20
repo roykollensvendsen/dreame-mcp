@@ -345,3 +345,9 @@ name = "the tank and mop on the dock come from the cache"
 file = "src/vacuum_mcp/backends/dreame.py"
 find = '^ {4}return "cache" if field in lagging else source$'
 replace = 'return source'
+
+[[rule]]
+name = "a tank whose dock is unknown comes from the cache"
+file = "src/vacuum_mcp/backends/dreame.py"
+find = '^ {4}lagging = LAGS_ON_THE_DOCK if values\["on_dock"\] is not False else frozenset\(\)$'
+replace = 'lagging = LAGS_ON_THE_DOCK if values["on_dock"] else frozenset()'

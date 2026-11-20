@@ -96,6 +96,15 @@ def test_the_tank_and_mop_on_the_dock_come_from_the_cache():
     assert {getattr(away, f).source for f in FIELDS} == {"fresh"}
 
 
+def test_a_tank_whose_dock_is_unknown_comes_from_the_cache():
+    # Neither the state (2.1) nor the charging code (3.2) came back: it may be on the dock.
+    unknown = dreame.read({"3.1": 84, "4.6": 1}, "dreame.vacuum.r2363a", NOW, "fresh")
+    assert unknown.on_dock.value is None
+    assert unknown.water_tank.source == "cache"
+    assert unknown.mop_pad.source == "cache"
+    assert unknown.battery.source == "fresh"
+
+
 # -- the voice says it -------------------------------------------------------------
 
 
