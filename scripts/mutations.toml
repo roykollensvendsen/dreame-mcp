@@ -229,8 +229,8 @@ replace = 'opening = "No problems."'
 [[rule]]
 name = "a full status says what it cannot report"
 file = "src/vacuum_mcp/voice.py"
-find = 'say = f"\{opening\} \{_sentence\(words\)\} \{_cannot_report\(reading\.cleaning, full\.mop_pad is not None\)\}"'
-replace = 'say = f"{opening} {_sentence(words)}"'
+find = 'say = f"\{opening\} \{said\} \{_cannot_report\(reading\.cleaning, full\.mop_pad is not None\)\}"'
+replace = 'say = f"{opening} {said}"'
 
 [[rule]]
 name = "a clean in progress says how far it has got"
@@ -327,3 +327,21 @@ name = "a command the model lacks sends nothing"
 file = "src/vacuum_mcp/voice.py"
 find = '^ {8}if command not in BACKEND\.capabilities\(client\.model\)\.commands:$'
 replace = 'if False:'
+
+[[rule]]
+name = "a reading older than a minute is said with its age"
+file = "src/vacuum_mcp/freshness.py"
+find = '^ {4}if age > FRESH_SECONDS:$'
+replace = 'if False:'
+
+[[rule]]
+name = "a cached reading is said as last reported"
+file = "src/vacuum_mcp/freshness.py"
+find = '^ {4}if reading\.source == "cache":$'
+replace = 'if False:'
+
+[[rule]]
+name = "the tank and mop on the dock come from the cache"
+file = "src/vacuum_mcp/backends/dreame.py"
+find = '^ {4}return "cache" if field in lagging else source$'
+replace = 'return source'

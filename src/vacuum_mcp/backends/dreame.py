@@ -244,7 +244,18 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
         "dust_bag": _looked_up(_num(raw, "27.3"), DUST_BAG),
         "consumables": _consumables(raw),
     }
-    return Readings(**{f: Reading(values[f], f in trusted, as_of, source) for f in FIELDS})
+    lagging = LAGS_ON_THE_DOCK if values["on_dock"] else frozenset()
+    return Readings(**{f: Reading(values[f], f in trusted, as_of, _source(f, lagging, source)) for f in FIELDS})
+
+
+#: Readings the cloud holds for minutes while the robot is docked: it reported the tank
+#: fitted the whole time it was out on 18.11 (notes n1, n4).
+LAGS_ON_THE_DOCK = frozenset({"water_tank", "mop_pad"})
+
+
+def _source(field: str, lagging: frozenset[str], source: Source) -> Source:
+    # RULE: the tank and mop on the dock come from the cache
+    return "cache" if field in lagging else source
 
 
 # -- the brand, as the voice server needs it (vacuum_mcp.backend.Backend) ---------------
