@@ -1,6 +1,6 @@
 # Contributing to this fork
 
-This fork is the home of `vacuum-voice-mcp` (old name `dreame-voice-mcp`), the vacuum's voice server
+This fork is the home of `vacuum-voice-mcp` (also started by its old name `dreame-voice-mcp`, kept for good), the vacuum's voice server
 (`src/vacuum_mcp/voice.py`, [docs/VOICE.md](docs/VOICE.md)). Everything else is
 [Sandra Schipal's dreame-mcp](https://github.com/sandraschi/dreame-mcp), and her
 ways apply to it.

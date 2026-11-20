@@ -1,6 +1,7 @@
 """The voice server lives in the brand-neutral vacuum_mcp and starts as vacuum-voice-mcp,
 while the old name dreame-voice-mcp keeps starting the very same server, so the bridge's
-plugin entry needs no change when this lands (the switch is the owner's step later)."""
+plugin entry never has to change. The old name is kept for good: switching the command in
+the owner's config counts as moving the plugin and needs the owner's typed approve."""
 
 import subprocess
 import sys

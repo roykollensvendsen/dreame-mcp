@@ -9,7 +9,7 @@
 </p>
 
 
-> **This fork** is the home of `vacuum-voice-mcp` (old name `dreame-voice-mcp`), a small voice server for
+> **This fork** is the home of `vacuum-voice-mcp` (also started by its old name `dreame-voice-mcp`, kept for good), a small voice server for
 > the vacuum (branch `voice`, see [the voice server](docs/VOICE.md)). The rest
 > is [Sandra Schipal's dreame-mcp](https://github.com/sandraschi/dreame-mcp),
 > used under the MIT License (its notice is kept in [LICENSE-MIT](LICENSE-MIT));
