@@ -45,6 +45,7 @@ from fastmcp import FastMCP
 
 from vacuum_mcp.backend import LoginWait, VacuumClient
 from vacuum_mcp.backends import default
+from vacuum_mcp.capabilities import COMMAND_WORDS
 from vacuum_mcp.readings import CLEANING_STATES, DOCKED_STATES, STATE_WORDS, STOPPABLE_STATES, Readings
 from vacuum_mcp.readings import Reading as VacReading
 
@@ -113,11 +114,12 @@ def _pick_rooms(asked: list[str], room_list: list[dict[str, Any]]) -> tuple[list
 class Unavailable(Exception):
     """The vacuum cannot be reached: what is wrong and what the owner can do next, both spoken."""
 
-    def __init__(self, wrong: str, then: str, maybe_sent: bool = False):
+    def __init__(self, wrong: str, then: str, maybe_sent: bool = False, refused: bool = False):
         super().__init__(f"{wrong} {then}")
         self.wrong = wrong
         self.then = then
         self.maybe_sent = maybe_sent  # the command was handed over: it may have reached the robot
+        self.refused = refused  # this model can't do it: the session is fine, nothing went wrong
 
     @property
     def say(self) -> str:
@@ -521,6 +523,16 @@ class Vacuum:
             raise Unavailable(UNREACHABLE, TRY_AGAIN)
         return Reading.of(_status(status.raw))
 
+    async def _able(self, command: str, deadline: float) -> None:
+        """Refuse, in words and before anything is sent, a command this model can't do. A
+        model the login found none for, or one the backend doesn't know, keeps every command."""
+        client = await self.link.ready(deadline)
+        # RULE: a command the model lacks sends nothing
+        if command not in BACKEND.capabilities(client.model).commands:
+            raise Unavailable(
+                f"This vacuum can't {COMMAND_WORDS[command]}.", f"Use {BACKEND.APP} for that instead.", refused=True
+            )
+
     async def _send(self, cmd: str, deadline: float) -> None:
         client = await self.link.ready(deadline)
         await self._handed_over(cmd, deadline, client.control(cmd))
@@ -561,8 +573,9 @@ class Vacuum:
             return await act(deadline)
         except Unavailable as e:
             # A failed command or map, not only a failed read, may mean the session ran out.
-            # RULE: a failed command logs in again on the next call
-            self.link.mark_stale()
+            if not e.refused:  # a refusal says this model can't: the session is fine
+                # RULE: a failed command logs in again on the next call
+                self.link.mark_stale()
             # RULE: a command that may have gone says so
             sent = sent and not e.maybe_sent
             # RULE: a command that was not sent says so
@@ -605,6 +618,7 @@ class Vacuum:
 
     async def start(self) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
+            await self._able("start", deadline)
             r = await self._read(deadline)
             if r.cleaning:
                 return self._answer(True, f"It's already {r.words()}.", r)
@@ -653,6 +667,7 @@ class Vacuum:
         return answer
 
     async def _start(self, deadline: float) -> dict[str, Any]:
+        await self._able("start", deadline)  # again: a confirm may come after the model changed
         await self._send("start_clean", deadline)
         r = await self._after(deadline)
         if r is None:
@@ -662,13 +677,14 @@ class Vacuum:
         return self._answer(True, f"I sent the start. The vacuum says it is {r.words()}.", r)
 
     async def pause(self) -> dict[str, Any]:
-        return await self._simple("pause", "Paused.", lambda r: r.stoppable, "nothing to pause")
+        return await self._simple("pause", "pause", "Paused.", lambda r: r.stoppable, "nothing to pause")
 
     async def stop(self) -> dict[str, Any]:
-        return await self._simple("stop", "Stopped.", lambda r: r.stoppable, "nothing to stop")
+        return await self._simple("stop", "stop", "Stopped.", lambda r: r.stoppable, "nothing to stop")
 
     async def go_home(self) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
+            await self._able("dock", deadline)
             r = await self._read(deadline)
             if r.docked:
                 return self._answer(True, f"It's already home: {r.words()}.", r)
@@ -682,6 +698,7 @@ class Vacuum:
 
     async def find(self) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
+            await self._able("locate", deadline)
             await self._send("find_robot", deadline)
             return self._answer(True, "The vacuum is beeping now, so you can find it.")
 
@@ -753,6 +770,7 @@ class Vacuum:
 
         async def act(deadline: float) -> dict[str, Any]:
             asked = [r for r in (rooms or []) if r and r.strip()]
+            await self._able("start_rooms", deadline)
             r = await self._read(deadline)
             if r.cleaning:
                 # RULE: a room clean while cleaning is refused
@@ -792,8 +810,11 @@ class Vacuum:
             True, f"I sent it to clean {_listed(names)}. The vacuum says it is {after.words()}.", after, rooms=names
         )
 
-    async def _simple(self, cmd: str, done: str, applies: Callable[[Reading], bool], nothing: str) -> dict[str, Any]:
+    async def _simple(
+        self, command: str, cmd: str, done: str, applies: Callable[[Reading], bool], nothing: str
+    ) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
+            await self._able(command, deadline)
             r = await self._read(deadline)
             if not applies(r):
                 return self._answer(True, f"There's {nothing}: the vacuum is {r.words()}.", r)

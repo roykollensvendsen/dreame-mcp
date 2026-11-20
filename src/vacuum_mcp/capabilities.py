@@ -12,6 +12,15 @@ from .readings import FIELDS
 
 #: The commands a backend may offer.
 COMMANDS = frozenset({"start", "start_rooms", "pause", "stop", "dock", "locate"})
+#: Each command as it is said after "This vacuum can't ...".
+COMMAND_WORDS = {
+    "start": "start a full clean",
+    "start_rooms": "clean chosen rooms",
+    "pause": "pause",
+    "stop": "stop where it is",
+    "dock": "go back to its dock by itself",
+    "locate": "beep so you can find it",
+}
 
 
 @dataclass(frozen=True)

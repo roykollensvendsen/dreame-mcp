@@ -321,3 +321,9 @@ name = "a base whose files cannot be listed fails the check"
 file = "scripts/ratchet.py"
 find = '^ {4}if listed\.returncode:$'
 replace = 'if False:'
+
+[[rule]]
+name = "a command the model lacks sends nothing"
+file = "src/vacuum_mcp/voice.py"
+find = '^ {8}if command not in BACKEND\.capabilities\(client\.model\)\.commands:$'
+replace = 'if False:'

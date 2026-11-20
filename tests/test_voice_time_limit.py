@@ -29,6 +29,7 @@ ARGS = {"vacuum_clean_rooms": {"rooms": ["Kitchen"]}, "vacuum_confirm": {"token"
 
 class Silent:
     """A cloud that never answers: every call waits forever."""
+    model: str | None = None  # no model from the login: every command is allowed
 
     def __init__(self, *, logged_in: bool) -> None:
         self._logged_in = logged_in

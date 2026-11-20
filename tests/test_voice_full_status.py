@@ -89,6 +89,7 @@ def test_no_full_status_without_a_connection():
 
 class Recorded:
     """A logged-in client whose cloud answers as the robot did on 2026-11-14."""
+    model: str | None = None  # no model from the login: every command is allowed
 
     def __init__(self, **change: Any):
         self.raw = {k: v for k, (code, v) in RECORDED.items() if code == 0}

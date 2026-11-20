@@ -495,6 +495,11 @@ class DreameHomeClient:
     def cloud_error(self) -> str | None:
         return self._cloud_error
 
+    @property
+    def model(self) -> str | None:
+        """The model from the cloud's device record, once logged in; None before or without one."""
+        return self._model
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
