@@ -27,6 +27,7 @@ class ExpiringSession:
     """Each login gives a session that ends `lifetime` seconds later. After that every
     request fails as the real client's do: no status, no answer to a command, no map.
     `connected` stays yes unless `says_invalid`, as after a 401."""
+    model: str | None = None  # no model from the login: every command is allowed
 
     def __init__(self, clock: Clock, *, lifetime: float = 3600, says_invalid: bool = False):
         self.clock = clock

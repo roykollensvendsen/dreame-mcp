@@ -22,6 +22,7 @@ NOT_SENT = "wasn't told anything"
 class LostAnswer:
     """Logged in, reads the state at once; a command reaches the robot, then its answer is
     lost: it hangs (`hang`) or comes back as the real client's "No response"."""
+    model: str | None = None  # no model from the login: every command is allowed
 
     connected = True
     cloud_error = None

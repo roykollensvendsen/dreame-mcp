@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _scripts() -> dict[str, str]:
-    return tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["scripts"]
+    return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
 
 
 def test_the_voice_server_starts_under_its_new_name():

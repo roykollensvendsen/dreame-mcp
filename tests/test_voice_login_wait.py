@@ -21,6 +21,7 @@ from vacuum_mcp.voice import Link, Unavailable
 
 class Login:
     """A client whose cloud login works or is refused, counting the tries."""
+    model: str | None = None  # no model from the login: every command is allowed
 
     def __init__(self, *, ok: bool = True):
         self.ok = ok

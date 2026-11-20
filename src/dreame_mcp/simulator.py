@@ -56,6 +56,7 @@ class SimulatedVacuum:
         self._connected = False
         self._rooms = ROOMS
         self.sent: list[str] = []
+        self.model: str | None = MODEL
 
     @property
     def connected(self) -> bool:
