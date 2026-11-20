@@ -1,4 +1,4 @@
-"""A voice-sized MCP server for a Dreame robot vacuum: nine small tools with spoken answers.
+"""A voice-sized MCP server for a robot vacuum: small tools with spoken answers.
 
 The main server (``server.py``) is a full workbench: one portmanteau tool, a
 map, a web app, sampling. A voice assistant needs much less and needs it
@@ -13,9 +13,12 @@ do next: every answer that is not a success ends with something to do.
 
 Run it:
 
-    dreame-voice-mcp --secrets-dir ~/.config/dreame   # login read from files
-    dreame-voice-mcp                                  # login from env / .env
-    dreame-voice-mcp --simulate                       # a pretend vacuum
+    <voice entry point> --secrets-dir <folder>   # login read from files
+    <voice entry point>                          # login from env / .env
+    <voice entry point> --simulate               # a pretend vacuum
+
+(The entry point is named in pyproject.toml. The brand's names, login and client come
+from its backend, ``vacuum_mcp.backends.default()``.)
 
 ``--ask-before-start`` makes ``vacuum_clean_all`` ask first and adds
 ``vacuum_confirm``, which starts the clean only with the token from that
@@ -36,19 +39,19 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from typing import Any, TypeVar
 
 from fastmcp import FastMCP
 
-from vacuum_mcp.backends import dreame
-from vacuum_mcp.backends.dreame import PARTS
+from vacuum_mcp.backend import LoginWait, VacuumClient
+from vacuum_mcp.backends import default
 from vacuum_mcp.readings import CLEANING_STATES, DOCKED_STATES, STATE_WORDS, STOPPABLE_STATES, Readings
 from vacuum_mcp.readings import Reading as VacReading
 
-from .client import DreameStatus, client_from_env
-from .login_wait import LoginWait, reason_of
-
-logger = logging.getLogger("dreame-mcp.voice")
+logger = logging.getLogger(__name__)
+#: The brand: its names in speech, its readings, its login and its client.
+BACKEND = default()
+PARTS = BACKEND.PARTS
 
 T = TypeVar("T")
 
@@ -65,28 +68,14 @@ QUESTION_TTL = 120.0
 
 NOTHING_SENT = " The vacuum wasn't told anything."
 CHECK_FIRST = "Ask me for its status before you try again."
-UNREACHABLE = "I can't reach the Dreame cloud right now."
+UNREACHABLE = f"I can't reach {BACKEND.CLOUD} right now."
 TRY_AGAIN = "Try again in a minute."
 RESTART = "then ask me to restart the vacuum plugin."
 #: The login is typed into the manager's masked boxes, so it never touches a terminal or a chat.
-LOGIN_BOXES = "Ask the claude-voice manager to open the DreameHome login boxes, then to restart the vacuum plugin."
+LOGIN_BOXES = (
+    f"Ask the claude-voice manager to open the {BACKEND.ACCOUNT} login boxes, then to restart the vacuum plugin."
+)
 SIMULATED = "SIMULATED: this is a pretend vacuum, not the real one. Say so when you report on it. "
-
-
-class VacuumClient(Protocol):
-    """What this server needs from a client: DreameHomeClient, or the simulator."""
-
-    @property
-    def connected(self) -> bool: ...
-    @property
-    def cloud_error(self) -> str | None: ...
-    async def connect(self) -> bool: ...
-    async def get_status(self) -> DreameStatus: ...
-    async def control(self, cmd: str) -> dict: ...
-    async def get_map(self) -> dict: ...
-    async def clean_rooms(self, room_ids: list[int]) -> dict: ...
-    async def get_full_status(self) -> dict: ...
-    def disconnect(self) -> None: ...
 
 
 def _listed(names: list[str]) -> str:
@@ -196,7 +185,7 @@ class Reading:
 def _status(raw: dict[str, Any], model: str | None = None) -> Readings:
     """A status read's properties as neutral readings. The cloud's get_properties can hold a
     docked robot's values for minutes (18.11), so the source is "cache"."""
-    return dreame.read(raw, model, time.time(), "cache")
+    return BACKEND.read(raw, model, time.time(), "cache")
 
 
 # -- the full status ------------------------------------------------------------
@@ -306,7 +295,7 @@ def full_status(
     clean, the room the live map puts it in. A reading the cloud left out, or one this model
     can't be trusted on, is not guessed: it is left out of both."""
     # The cloud's get_properties can hold a docked robot's values for minutes (18.11): "cache".
-    readings = dreame.read(raw, model, time.time() if as_of is None else as_of, "cache")
+    readings = BACKEND.read(raw, model, time.time() if as_of is None else as_of, "cache")
     full, reading = FullStatus.of(readings), Reading.of(readings)
     problems = full.problems()
     words = full.words(reading)
@@ -318,7 +307,7 @@ def full_status(
     opening = "Problems: " + "; ".join(problems) + "." if problems else "No problems."
     # RULE: a full status says what it cannot report
     say = f"{opening} {_sentence(words)} {_cannot_report(reading.cleaning, full.mop_pad is not None)}"
-    if not dreame.known_model(model):
+    if not BACKEND.known_model(model):
         logger.warning("full status for a model with no row of its own (%s): only the basics", model)
         say += BASICS_ONLY
     fields: dict[str, Any] = {
@@ -341,22 +330,25 @@ def full_status(
     return say, fields
 
 
+def sentence(words: str) -> str:
+    """Words at the start of a sentence: the first letter up, the rest as it is."""
+    return words[:1].upper() + words[1:]
+
+
 def _login_problem(cloud_error: str | None) -> tuple[str, str]:
     """A spoken reason for a failed login and what to do about it, never quoting the account."""
-    text = (cloud_error or "").lower()
-    if "70016" in text or "credentials" in text:
+    trouble = BACKEND.login_trouble(cloud_error)
+    cloud = sentence(BACKEND.CLOUD)
+    if trouble == "refused":
+        return f"{cloud} turned down the login.", LOGIN_BOXES
+    if trouble == "extra_check":
         return (
-            "The Dreame cloud turned down the login.",
-            LOGIN_BOXES,
+            f"{cloud} wants an extra check before it lets me in.",
+            f"Open {BACKEND.APP}, then ask again in a minute.",
         )
-    if "2fa" in text or "verification" in text or "captcha" in text:
+    if trouble == "rate_limited":
         return (
-            "The Dreame cloud wants an extra check before it lets me in.",
-            "Open the DreameHome app, then ask again in a minute.",
-        )
-    if "rate-limited" in text:
-        return (
-            "The Dreame cloud has had too many logins and wants me to wait.",
+            f"{cloud} has had too many logins and wants me to wait.",
             "Ask again in a few minutes, not sooner.",
         )
     return UNREACHABLE, TRY_AGAIN
@@ -385,7 +377,7 @@ class Link:
         # Wall time as this Link's clock sees it pass, so a test's clock moves the shared
         # wait too; with the real monotonic clock it is time.time().
         started, wall = clock(), time.time()
-        self._wait = wait or LoginWait(clock=lambda: wall + (self._clock() - started))
+        self._wait = wait or BACKEND.login_wait(lambda: wall + (self._clock() - started))
         self._task: asyncio.Task[bool] | None = None
         self._last_try: float | None = None
         self._suspect = False  # a call failed while logged in: the session may have run out
@@ -408,7 +400,7 @@ class Link:
             logger.exception("connect failed")
             return False
         if client.cloud_error:
-            self._wait.failed(reason_of(client.cloud_error))
+            self._wait.failed(BACKEND.wait_reason(client.cloud_error))
         elif ok and client.connected:
             self._wait.succeeded()
         return ok
@@ -437,7 +429,7 @@ class Link:
         client = self.client
         if client is None:
             raise Unavailable(
-                "The vacuum isn't set up on the computer yet: its Dreame login is missing.",
+                f"The vacuum isn't set up on the computer yet: its {BACKEND.LOGIN} is missing.",
                 LOGIN_BOXES,
             )
         self._drop_if_stale(client)
@@ -451,7 +443,7 @@ class Link:
                 if client.cloud_error:
                     raise Unavailable(*_login_problem(client.cloud_error))
                 raise Unavailable(
-                    "A Dreame login failed a moment ago, so I'm waiting before I try again.",
+                    f"A {BACKEND.LOGIN} failed a moment ago, so I'm waiting before I try again.",
                     "Ask again in a minute.",
                 )
             self._begin()
@@ -460,7 +452,7 @@ class Link:
             # RULE: every tool answers within the voices time
             ok = await asyncio.wait_for(asyncio.shield(self._task), timeout=max(0.0, deadline - self._clock()))
         except TimeoutError:
-            raise Unavailable("I'm still logging in to the Dreame cloud.", "Ask again in a moment.") from None
+            raise Unavailable(f"I'm still logging in to {BACKEND.CLOUD}.", "Ask again in a moment.") from None
         if not ok or not client.connected:
             self._task = None  # a later call may try again, after the wait
             raise Unavailable(*_login_problem(client.cloud_error))
@@ -516,7 +508,9 @@ class Vacuum:
             # RULE: a slow cloud still answers within the budget
             return await asyncio.wait_for(call, timeout=max(0.0, deadline - self._clock()))
         except TimeoutError:
-            raise Unavailable("The Dreame cloud is taking too long to answer.", "Try again in a moment.") from None
+            raise Unavailable(
+                f"{sentence(BACKEND.CLOUD)} is taking too long to answer.", "Try again in a moment."
+            ) from None
 
     async def _read(self, deadline: float) -> Reading:
         client = await self.link.ready(deadline)
@@ -539,14 +533,14 @@ class Vacuum:
             result = await self._within(deadline, call)
         except Unavailable:
             raise Unavailable(
-                "The Dreame cloud took too long to answer, so the command may still reach the vacuum.",
+                f"{sentence(BACKEND.CLOUD)} took too long to answer, so the command may still reach the vacuum.",
                 CHECK_FIRST,
                 maybe_sent=True,
             ) from None
         if not result.get("success"):
             logger.warning("%s not confirmed: %s", what, result.get("error"))
             raise Unavailable(
-                "The Dreame cloud didn't confirm the command, so it may have reached the vacuum or not.",
+                f"{sentence(BACKEND.CLOUD)} didn't confirm the command, so it may have reached the vacuum or not.",
                 CHECK_FIRST,
                 maybe_sent=True,
             )
@@ -700,7 +694,7 @@ class Vacuum:
             m = await self._within(deadline, client.get_map())
         except Unavailable:
             raise Unavailable(
-                "The map is taking too long to come from the Dreame cloud.", "Try again in a moment."
+                f"The map is taking too long to come from {BACKEND.CLOUD}.", "Try again in a moment."
             ) from None
         if not m.get("success") or not isinstance(m.get("map_data"), dict):
             logger.warning("map fetch failed: %s", m.get("error"))
@@ -769,7 +763,7 @@ class Vacuum:
                 return self._answer(
                     False,
                     "Its map has no rooms, so I can't clean by room. "
-                    "Use the DreameHome app to split the map into rooms, or ask for a full clean.",
+                    f"Use {BACKEND.APP} to split the map into rooms, or ask for a full clean.",
                     r,
                     rooms=[],
                 )
@@ -814,7 +808,7 @@ class Vacuum:
 
 def instructions(ask_first: bool, simulated: bool) -> str:
     text = (
-        "Controls the user's robot vacuum through the Dreame cloud. Every answer has 'say': read it "
+        f"Controls the user's robot vacuum through {BACKEND.CLOUD}. Every answer has 'say': read it "
         "aloud as it is. vacuum_status tells what it is doing and its battery. vacuum_clean_all starts a "
         "full clean, vacuum_pause pauses it, vacuum_stop stops it where it is, vacuum_go_home sends it "
         "back to the dock, vacuum_find makes it beep. vacuum_where says which room it is in, from its "
@@ -965,11 +959,13 @@ class _QuietDiscover(logging.Filter):
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(description="Voice-sized MCP server (stdio) for a Dreame robot vacuum")
+    p = argparse.ArgumentParser(
+        description=f"Voice-sized MCP server (stdio) for a robot vacuum, through {BACKEND.CLOUD}"
+    )
     p.add_argument("--simulate", action="store_true", help="a pretend vacuum: no login, no cloud")
     p.add_argument(
         "--secrets-dir",
-        help="folder with files 'user' and 'password' (DreameHome login); ~ is expanded",
+        help=f"folder with files 'user' and 'password' ({BACKEND.ACCOUNT} login); ~ is expanded",
     )
     p.add_argument(
         "--ask-before-start",
@@ -981,12 +977,7 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     logging.getLogger().addFilter(_QuietDiscover())
 
-    if args.simulate:
-        from .simulator import SimulatedVacuum
-
-        client: VacuumClient | None = SimulatedVacuum()
-    else:
-        client = client_from_env(args.secrets_dir)
+    client: VacuumClient | None = BACKEND.simulator() if args.simulate else BACKEND.client(args.secrets_dir)
 
     vacuum = Vacuum(Link(client), ask_first=args.ask_before_start, simulated=args.simulate)
     build_server(vacuum).run(transport="stdio", show_banner=False)

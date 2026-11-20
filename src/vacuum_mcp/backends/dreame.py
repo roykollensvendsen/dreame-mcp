@@ -8,8 +8,10 @@ says where each is read). Checked against the owner's L10s Plus (dreame.vacuum.r
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
+from ..backend import LoginTrouble, LoginWait, VacuumClient
 from ..capabilities import COMMANDS, Capabilities
 from ..readings import FIELDS, Reading, Readings, Source
 
@@ -243,3 +245,56 @@ def read(raw: dict[str, Any], model: str | None, as_of: float, source: Source) -
         "consumables": _consumables(raw),
     }
     return Readings(**{f: Reading(values[f], f in trusted, as_of, source) for f in FIELDS})
+
+
+# -- the brand, as the voice server needs it (vacuum_mcp.backend.Backend) ---------------
+# The cloud client, the login wait and the simulator are imported only when asked for,
+# so loading the readings never loads the cloud library.
+
+CLOUD = "the Dreame cloud"
+APP = "the DreameHome app"
+ACCOUNT = "DreameHome"
+LOGIN = "Dreame login"
+
+
+#: Words in the client's account of a failed login, and what kind of trouble each means.
+#: The first match counts.
+_TROUBLES: tuple[tuple[LoginTrouble, tuple[str, ...]], ...] = (
+    ("refused", ("70016", "credentials")),
+    ("extra_check", ("2fa", "verification", "captcha")),
+    ("rate_limited", ("rate-limited",)),
+)
+
+
+def login_trouble(cloud_error: str | None) -> LoginTrouble | None:
+    """Why the cloud refused a login, from the client's own words for it."""
+    text = (cloud_error or "").lower()
+    return next((trouble for trouble, words in _TROUBLES if any(word in text for word in words)), None)
+
+
+def wait_reason(cloud_error: str | None) -> str:
+    """The reason code kept in the shared login wait (never the cloud's words)."""
+    from dreame_mcp.login_wait import reason_of
+
+    return reason_of(cloud_error)
+
+
+def login_wait(clock: Callable[[], float]) -> LoginWait:
+    """The login wait shared with the web settings page."""
+    from dreame_mcp.login_wait import LoginWait as SharedWait
+
+    return SharedWait(clock=clock)
+
+
+def client(secrets_dir: str | None) -> VacuumClient | None:
+    """The DreameHome cloud client, or None when no login is set up."""
+    from dreame_mcp.client import client_from_env
+
+    return client_from_env(secrets_dir)
+
+
+def simulator() -> VacuumClient:
+    """A pretend vacuum: no login, no cloud."""
+    from dreame_mcp.simulator import SimulatedVacuum
+
+    return SimulatedVacuum()
