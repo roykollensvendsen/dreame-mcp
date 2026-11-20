@@ -1,6 +1,6 @@
 # The voice server
 
-`vacuum-voice-mcp` (until the switch also started by its old name `dreame-voice-mcp`) is a second, much smaller MCP server in this package, for
+`vacuum-voice-mcp` (also started, for good, by its old name `dreame-voice-mcp`) is a second, much smaller MCP server in this package, for
 voice assistants and other clients that read a one-line answer aloud. It speaks
 MCP over stdio only, and has ten tools and no web app or sampling.
 
