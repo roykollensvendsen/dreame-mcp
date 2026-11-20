@@ -246,7 +246,7 @@ def test_main_simulate_starts_a_pretend_vacuum_over_stdio(started):
 
 def test_main_reads_the_login_from_the_secrets_folder(started, monkeypatch):
     asked = []
-    monkeypatch.setattr(voice, "client_from_env", lambda folder: asked.append(folder) or None)
+    monkeypatch.setattr(voice.BACKEND, "client", lambda folder: asked.append(folder) or None)
     voice.main(["--secrets-dir", "/nowhere"])
     assert asked == ["/nowhere"]
     assert started.vacuum is not None
