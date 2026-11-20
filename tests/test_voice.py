@@ -303,6 +303,7 @@ async def test_not_set_up():
 
 class FakeClient:
     """Login and reads that can fail or hang on cue."""
+
     model: str | None = None  # no model from the login: every command is allowed
 
     def __init__(self, *, login_ok=True, cloud_error=None, hang_connect=0.0, hang_status=0.0):

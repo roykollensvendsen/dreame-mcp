@@ -31,6 +31,7 @@ class Clock:
 
 class Scripted:
     """A client whose status reads follow a script: each read takes the next, the last repeats."""
+
     model: str | None = None  # no model from the login: every command is allowed
 
     def __init__(self, *reads: dict | DreameStatus, rooms=ROOMS, robot_room=None, docked=False):
