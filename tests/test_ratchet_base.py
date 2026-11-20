@@ -105,3 +105,26 @@ def test_a_base_whose_files_cannot_be_listed_fails_the_check(repo, monkeypatch, 
 def test_a_base_with_code_is_measured(repo, monkeypatch):
     monkeypatch.setattr(ratchet, "measure_at", lambda ref: {"tests": 1, "ref": ref})
     assert ratchet.base_for("main") == {"tests": 1, "ref": "main"}
+
+
+def _why(call) -> str:
+    with pytest.raises(ratchet.BaseUnreadable) as caught:
+        call()
+    return str(caught.value)
+
+
+def test_a_base_that_cannot_be_read_says_what_to_do_next(repo, monkeypatch):
+    """Each refusal names the next step, not only what went wrong."""
+    monkeypatch.setattr(ratchet, "measure_at", lambda ref: None)
+    assert "git fetch origin no-such-ref" in _why(lambda: ratchet.base_for("no-such-ref"))
+    assert "ratchet.py measure" in _why(lambda: ratchet.base_for("main"))
+
+    real = ratchet.subprocess.run
+
+    def run(command, *args, **kwargs):
+        if command[:2] == ["git", "ls-tree"]:
+            return ratchet.subprocess.CompletedProcess(command, 128, stdout="", stderr="fatal: bad tree")
+        return real(command, *args, **kwargs)
+
+    monkeypatch.setattr(ratchet.subprocess, "run", run)
+    assert "git fetch origin main" in _why(lambda: ratchet.base_for("main"))

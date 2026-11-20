@@ -373,7 +373,10 @@ def _python_under_src(ref: str) -> bool:
     )
     # RULE: a base whose files cannot be listed fails the check
     if listed.returncode:
-        raise BaseUnreadable(f"The files of the base {ref} could not be listed, so nothing can be compared.")
+        raise BaseUnreadable(
+            f"The files of the base {ref} could not be listed, so nothing can be compared."
+            f" Fetch it with `git fetch origin {ref}` and run the check again."
+        )
     return any(name.endswith(".py") for name in listed.stdout.splitlines())
 
 
@@ -386,7 +389,10 @@ def base_for(ref: str) -> dict[str, Any] | None:
     """
     # RULE: a base that is not a commit fails the check
     if not _in_git("rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"):
-        raise BaseUnreadable(f"The base {ref} is not a commit in this checkout, so nothing can be compared.")
+        raise BaseUnreadable(
+            f"The base {ref} is not a commit in this checkout, so nothing can be compared."
+            f" Fetch it with `git fetch origin {ref}`, or pass a branch or commit as --base, and run the check again."
+        )
     # No Python under src at all, not only no package where it is now: code moved to another
     # package (the vacuum-mcp plan) is still code to compare with.
     if not _python_under_src(ref):
@@ -395,7 +401,10 @@ def base_for(ref: str) -> dict[str, Any] | None:
     levels = measure_at(ref)
     # RULE: a base with code that cannot be measured fails the check
     if levels is None:
-        raise BaseUnreadable(f"The base {ref} has code but could not be measured, so nothing can be compared.")
+        raise BaseUnreadable(
+            f"The base {ref} has code but could not be measured, so nothing can be compared."
+            f" Run `python scripts/ratchet.py measure` in a checkout of {ref} to see why, fix it, and run the check again."
+        )
     return levels
 
 
