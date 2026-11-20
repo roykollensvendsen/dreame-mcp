@@ -14,10 +14,10 @@ import pytest
 
 from dreame_mcp.client import FULL_STATUS, DreameHomeClient
 from dreame_mcp.simulator import SimulatedVacuum
-from dreame_mcp.voice import Link, Vacuum
 from vacuum_mcp.backends import dreame
 from vacuum_mcp.capabilities import COMMANDS, Capabilities
 from vacuum_mcp.readings import FIELDS
+from vacuum_mcp.voice import Link, Vacuum
 
 #: siid.piid -> (answer code, value), as the cloud answered on 2026-11-14 (the robot on its
 #: dock, fully charged, its water tank just refilled and fitted).

@@ -16,9 +16,9 @@ import ast
 import pathlib
 import re
 
-from dreame_mcp import voice
 from dreame_mcp.simulator import SimulatedVacuum
-from dreame_mcp.voice import Link, Vacuum
+from vacuum_mcp import voice
+from vacuum_mcp.voice import Link, Vacuum
 
 SOURCE = pathlib.Path(voice.__file__)
 #: The start of a sentence that says what to do next.

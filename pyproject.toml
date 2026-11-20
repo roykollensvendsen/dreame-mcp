@@ -29,7 +29,8 @@ dependencies = [
 
 [project.scripts]
 dreame-mcp = "dreame_mcp.server:main"
-dreame-voice-mcp = "dreame_mcp.voice:main"
+dreame-voice-mcp = "vacuum_mcp.voice:main"
+vacuum-voice-mcp = "vacuum_mcp.voice:main"
 
 [build-system]
 requires = ["hatchling"]

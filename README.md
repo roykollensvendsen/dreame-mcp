@@ -9,7 +9,7 @@
 </p>
 
 
-> **This fork** is the home of `dreame-voice-mcp`, a small voice server for
+> **This fork** is the home of `vacuum-voice-mcp` (old name `dreame-voice-mcp`), a small voice server for
 > the vacuum (branch `voice`, see [the voice server](docs/VOICE.md)). The rest
 > is [Sandra Schipal's dreame-mcp](https://github.com/sandraschi/dreame-mcp),
 > used under the MIT License (its notice is kept in [LICENSE-MIT](LICENSE-MIT));
@@ -141,7 +141,7 @@ If you don't have `just` installed:
 
 ### Voice assistants
 
-`dreame-voice-mcp` is a small stdio server with ten tools (`vacuum_status`,
+`vacuum-voice-mcp` is a small stdio server with ten tools (`vacuum_status`,
 `vacuum_full_status`, `vacuum_clean_all`, `vacuum_pause`, `vacuum_stop`, `vacuum_go_home`,
 `vacuum_find`, `vacuum_where`, `vacuum_rooms`, `vacuum_clean_rooms`) that answer in one sentence to
 read aloud. `--simulate` runs it

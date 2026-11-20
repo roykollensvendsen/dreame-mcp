@@ -1,6 +1,6 @@
 # The voice server
 
-`dreame-voice-mcp` is a second, much smaller MCP server in this package, for
+`vacuum-voice-mcp` (until the switch also started by its old name `dreame-voice-mcp`) is a second, much smaller MCP server in this package, for
 voice assistants and other clients that read a one-line answer aloud. It speaks
 MCP over stdio only, and has ten tools and no web app or sampling.
 
@@ -79,13 +79,13 @@ for a client that wants to act on it.
 ## Starting it
 
 ```bash
-dreame-voice-mcp --simulate                          # a pretend vacuum: no login, no cloud
-dreame-voice-mcp --secrets-dir ~/.config/dreame      # login read from files 'user' and 'password'
-dreame-voice-mcp                                     # login from DREAME_USER / DREAME_PASSWORD or .env
-dreame-voice-mcp --ask-before-start                  # vacuum_clean_all asks; vacuum_confirm(token) starts
+vacuum-voice-mcp --simulate                          # a pretend vacuum: no login, no cloud
+vacuum-voice-mcp --secrets-dir ~/.config/dreame      # login read from files 'user' and 'password'
+vacuum-voice-mcp                                     # login from DREAME_USER / DREAME_PASSWORD or .env
+vacuum-voice-mcp --ask-before-start                  # vacuum_clean_all asks; vacuum_confirm(token) starts
 ```
 
-Run it from the repository folder (`uv run dreame-voice-mcp …`), so it finds
+Run it from the repository folder (`uv run vacuum-voice-mcp …`), so it finds
 `.env` for the region, device id and reference path.
 
 `--secrets-dir` names a folder holding two files, `user` and `password`, with
@@ -100,7 +100,7 @@ A client config for Claude Desktop, OpenCode and the like:
   "mcpServers": {
     "vacuum": {
       "command": "uv",
-      "args": ["run", "dreame-voice-mcp", "--secrets-dir", "/home/me/.config/dreame"],
+      "args": ["run", "vacuum-voice-mcp", "--secrets-dir", "/home/me/.config/dreame"],
       "cwd": "/path/to/dreame-mcp"
     }
   }

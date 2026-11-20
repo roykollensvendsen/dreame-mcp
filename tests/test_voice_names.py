@@ -14,7 +14,7 @@ import itertools
 from fastmcp import Client
 
 from dreame_mcp.simulator import SimulatedVacuum
-from dreame_mcp.voice import Link, Vacuum, build_server
+from vacuum_mcp.voice import Link, Vacuum, build_server
 
 #: Every pair of tools whose names sound alike, and what tells them apart.
 LOOK_ALIKE: dict[frozenset[str], str] = {

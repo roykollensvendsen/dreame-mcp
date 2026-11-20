@@ -17,7 +17,7 @@ import pytest
 from fastmcp import Client
 
 from dreame_mcp.client import DreameStatus
-from dreame_mcp.voice import CALL_BUDGET, SETTLE, Link, Vacuum, build_server
+from vacuum_mcp.voice import CALL_BUDGET, SETTLE, Link, Vacuum, build_server
 
 #: How long the Claude app waits for a tool, in seconds (seen 2026-11).
 APP_LIMIT = 15.0
