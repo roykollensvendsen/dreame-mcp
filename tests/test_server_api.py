@@ -516,6 +516,11 @@ def reconnect(env, monkeypatch):
     return SimpleNamespace(client=fresh, calls=calls)
 
 
+#: A password no temporary path can contain by chance: the answer names the .env file's
+#: path, and a random folder like /tmp/tmpwpjo3l20 once held the old "pw".
+SECRET = "Secret-Q7x!not.a.path"
+
+
 def test_connection_update_saves_reconnects_and_answers_the_new_snapshot(web, env, reconnect, monkeypatch):
     import os
 
@@ -525,13 +530,14 @@ def test_connection_update_saves_reconnects_and_answers_the_new_snapshot(web, en
     env.env_file.write_text("# keep me\nDREAME_COUNTRY=eu\n", encoding="utf-8")
     r = web.post(
         "/api/v1/connection",
-        json={"ip": " 10.0.0.3 ", "user": "new@example.com", "password": "pw", "country": "us"},
+        json={"ip": " 10.0.0.3 ", "user": "new@example.com", "password": SECRET, "country": "us"},
     )
     body = r.json()
     assert body["updated"] == ["DREAME_COUNTRY", "DREAME_IP", "DREAME_PASSWORD", "DREAME_USER"]
     assert body["env_file"] == str(env.env_file)
     assert body["connection"]["connected"] is True
-    assert "pw" not in str(body)
+    assert SECRET not in str(body)
+    assert f"DREAME_PASSWORD={SECRET}" in env.env_file.read_text(encoding="utf-8")  # saved, just not answered
     text = env.env_file.read_text(encoding="utf-8")
     assert "# keep me" in text
     assert "DREAME_IP=10.0.0.3" in text
