@@ -43,6 +43,7 @@ from typing import Any, TypeVar
 
 from fastmcp import FastMCP
 
+from vacuum_mcp import freshness
 from vacuum_mcp.backend import LoginWait, VacuumClient
 from vacuum_mcp.backends import default
 from vacuum_mcp.capabilities import COMMAND_WORDS
@@ -142,6 +143,8 @@ class Reading:
     #: The backend's own word on the dock, or None to go by the neutral state alone.
     on_dock: bool | None = None
     full: bool | None = None
+    #: The readings it was made from, for saying which of them may be behind.
+    readings: Readings | None = None
 
     @classmethod
     def of(cls, readings: Readings) -> Reading:
@@ -152,7 +155,18 @@ class Reading:
             charging=_known(readings.charging) is True,
             on_dock=_known(readings.on_dock),
             full=_known(readings.fully_charged),
+            readings=readings,
         )
+
+    def spoken(self) -> list[tuple[str, VacReading[Any]]]:
+        """The readings its words say, each with how to name it in a note on freshness."""
+        if self.readings is None:
+            return []
+        doing = f"it showed {self.doing()}"
+        said: list[tuple[str, VacReading[Any]]] = [(doing, self.readings.state), (doing, self.readings.activity)]
+        if self.battery is not None:
+            said.append((f"the battery showed {self.battery} percent", self.readings.battery))
+        return said
 
     @property
     def state(self) -> str:
@@ -176,18 +190,22 @@ class Reading:
     def stoppable(self) -> bool:
         return self.name in STOPPABLE_STATES
 
+    def doing(self) -> str:
+        """'charging on the dock'."""
+        return self.activity or STATE_WORDS.get(self.name or "", "busy with something I have no name for")
+
     def words(self) -> str:
         """'charging on the dock, battery 84 percent'."""
-        what = self.activity or STATE_WORDS.get(self.name or "", "busy with something I have no name for")
+        what = self.doing()
         if self.battery is not None:
             what += f", battery {self.battery} percent"
         return what
 
 
 def _status(raw: dict[str, Any], model: str | None = None) -> Readings:
-    """A status read's properties as neutral readings. The cloud's get_properties can hold a
-    docked robot's values for minutes (18.11), so the source is "cache"."""
-    return BACKEND.read(raw, model, time.time(), "cache")
+    """A status read's properties as neutral readings, read just now. The backend marks the
+    ones its cloud can hold for minutes as "cache" (notes n4)."""
+    return BACKEND.read(raw, model, time.time(), "fresh")
 
 
 # -- the full status ------------------------------------------------------------
@@ -267,6 +285,29 @@ class FullStatus:
         parts += ["left: " + ", ".join(worn) + " percent"] if worn else []
         return [p for p in (*parts, ", ".join(base)) if p]
 
+    def spoken(self, problems: list[str], progress: dict[str, int] | None) -> list[tuple[str, VacReading[Any]]]:
+        """The readings a full status says beyond the state and battery, each with how to
+        name it in a note on freshness. A reading not said is not listed."""
+        r = self.readings
+        said: list[tuple[str, VacReading[Any]]] = [
+            (f"the {what} showed {value}", reading)
+            for what, value, reading in (
+                ("water tank", self.water_tank, r.water_tank),
+                ("mop pad", self.mop_pad, r.mop_pad),
+                ("water flow", self.water_flow, r.water_flow),
+                ("dust bag", self.dust_bag, r.dust_bag),
+            )
+            if value
+        ]
+        if self.auto_empty is not None:
+            said.append((f"auto-empty showed {'on' if self.auto_empty else 'off'}", r.auto_empty))
+        if self.wear:
+            said.append(("the wear figures showed those numbers", r.consumables))
+        said.append((f"the problem report showed {'those problems' if problems else 'none'}", r.error))
+        if progress:
+            said += [("the progress showed those figures", reading) for reading in (r.done, r.area, r.time)]
+        return said
+
 
 #: How far a clean has got, in the order said: (field, unit words).
 PROGRESS = (("square_metres", "square metres"), ("minutes", "minutes"))
@@ -296,8 +337,8 @@ def full_status(
     """What a full status says, and its fields, from the robot's readings and, during a
     clean, the room the live map puts it in. A reading the cloud left out, or one this model
     can't be trusted on, is not guessed: it is left out of both."""
-    # The cloud's get_properties can hold a docked robot's values for minutes (18.11): "cache".
-    readings = BACKEND.read(raw, model, time.time() if as_of is None else as_of, "cache")
+    # Read just now; the backend marks what its cloud can hold for minutes as "cache" (notes n4).
+    readings = BACKEND.read(raw, model, time.time() if as_of is None else as_of, "fresh")
     full, reading = FullStatus.of(readings), Reading.of(readings)
     problems = full.problems()
     words = full.words(reading)
@@ -307,8 +348,10 @@ def full_status(
         words[1:1] = _progress_words(progress or {}, room)
     # RULE: a full status says problems first
     opening = "Problems: " + "; ".join(problems) + "." if problems else "No problems."
+    behind = freshness.note([*reading.spoken(), *full.spoken(problems, progress)], time.time())
+    said = _sentence(words) + (f" {behind}" if behind else "")
     # RULE: a full status says what it cannot report
-    say = f"{opening} {_sentence(words)} {_cannot_report(reading.cleaning, full.mop_pad is not None)}"
+    say = f"{opening} {said} {_cannot_report(reading.cleaning, full.mop_pad is not None)}"
     if not BACKEND.known_model(model):
         logger.warning("full status for a model with no row of its own (%s): only the basics", model)
         say += BASICS_ONLY
@@ -587,7 +630,8 @@ class Vacuum:
     async def status(self) -> dict[str, Any]:
         async def act(deadline: float) -> dict[str, Any]:
             r = await self._read(deadline)
-            return self._answer(True, f"The vacuum is {r.words()}.", r)
+            behind = freshness.note(r.spoken(), time.time())
+            return self._answer(True, f"The vacuum is {r.words()}." + (f" {behind}" if behind else ""), r)
 
         return await self._guarded(act, sent=False)
 
