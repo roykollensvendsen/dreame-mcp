@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from dreame_mcp.client import _classify_cloud_failure
-from dreame_mcp.voice import Link, Unavailable
+from vacuum_mcp.voice import Link, Unavailable
 
 
 class Login:

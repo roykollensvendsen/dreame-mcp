@@ -5,7 +5,7 @@ description: Change, test or roll out the vacuum's voice plugin (dreame-voice-mc
 
 # The vacuum voice plugin
 
-`dreame-voice-mcp` (`src/dreame_mcp/voice.py`) is served to the owner's voice
+`dreame-voice-mcp` (the old name of `vacuum-voice-mcp`, `src/vacuum_mcp/voice.py`) is served to the owner's voice
 through the claude-voice bridge as the plugin `vacuum`. The robot is a Dreame
 **L10s Plus** (`dreame.vacuum.r2363a`), not the D20 Pro Plus that upstream's
 README names. What the tools do and say: [docs/VOICE.md](../../../docs/VOICE.md).

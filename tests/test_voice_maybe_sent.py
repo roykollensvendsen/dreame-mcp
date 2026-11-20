@@ -14,7 +14,7 @@ import asyncio
 import time
 
 from dreame_mcp.client import DreameStatus
-from dreame_mcp.voice import Link, Vacuum
+from vacuum_mcp.voice import Link, Vacuum
 
 NOT_SENT = "wasn't told anything"
 

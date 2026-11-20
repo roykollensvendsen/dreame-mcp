@@ -11,91 +11,91 @@
 
 [[rule]]
 name = "a confirm needs the open questions token"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if question is None or not secrets\.compare_digest'
 replace = 'if question is None or self._clock() > question[1]:'
 
 [[rule]]
 name = "a question expires"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if question is None or not secrets\.compare_digest'
 replace = 'if question is None or not secrets.compare_digest(question[0], token):'
 
 [[rule]]
 name = "a token is spent only once the start was sent"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'self\._question = \(token, expires, True\)'
 replace = 'pass'
 
 [[rule]]
 name = "a retried confirm does not start twice"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if tried:'
 replace = 'if False:'
 
 [[rule]]
 name = "a failed login waits before trying again"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if waited < self\._retry_after and self\._last_try is not None:'
 replace = 'if False:'
 
 [[rule]]
 name = "a slow cloud still answers within the budget"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'return await asyncio\.wait_for\(call, timeout='
 replace = 'return await asyncio.wait_for(call, timeout=max(0.0, deadline - self._clock()) + 1)'
 
 [[rule]]
 name = "every tool answers within the voices time"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'ok = await asyncio\.wait_for\(asyncio\.shield\(self\._task\)'
 replace = 'ok = await asyncio.wait_for(asyncio.shield(self._task), timeout=max(0.0, deadline - self._clock()) + 1)'
 
 [[rule]]
 name = "a simulated answer says so"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'say = "Simulated: " \+ say'
 replace = 'pass'
 
 [[rule]]
 name = "a command that was not sent says so"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'e\.wrong \+ \(NOTHING_SENT if sent else ""\) \+ " " \+ e\.then'
 replace = 'return self._answer(False, e.say)'
 
 [[rule]]
 name = "an unknown room is refused"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if unknown:'
 replace = 'if False:'
 
 [[rule]]
 name = "a room clean while cleaning is refused"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'Stop it first, then ask again'
 replace = 'pass'
 
 [[rule]]
 name = "a saved map does not claim where the robot is"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if m\.get\("source"\) != "live":'
 replace = 'if False:'
 
 [[rule]]
 name = "an action says the state read back after it"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'return await self\._read\(deadline\)$'
 replace = 'return None'
 
 [[rule]]
 name = "a tool that changes nothing is marked read only"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'read_only = \{"readOnlyHint": True'
 replace = 'read_only = {"readOnlyHint": False, "openWorldHint": True}'
 
 [[rule]]
 name = "every failure says what to do next"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'e\.wrong \+ \(NOTHING_SENT if sent else ""\) \+ " " \+ e\.then'
 replace = 'return self._answer(False, e.wrong + (NOTHING_SENT if sent else ""))'
 
@@ -119,7 +119,7 @@ replace = 'pass'
 
 [[rule]]
 name = "a command that may have gone says so"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'sent = sent and not e\.maybe_sent'
 replace = 'pass'
 
@@ -131,13 +131,13 @@ replace = 'if False:'
 
 [[rule]]
 name = "a session the cloud called invalid logs in again at once"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if not client\.connected or \(self\._suspect and waited >= self\._retry_after\):'
 replace = 'if self._suspect and waited >= self._retry_after:'
 
 [[rule]]
 name = "a failed command logs in again on the next call"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'self\.link\.mark_stale\(\)'
 occurrence = 2
 replace = 'pass'
@@ -192,7 +192,7 @@ replace = 'pass'
 
 [[rule]]
 name = "a failed login in either process makes the other wait"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if self\._wait\.left\(\) > 0:'
 replace = 'if False:'
 
@@ -210,37 +210,37 @@ replace = '"rate-limited": 60.0,'
 
 [[rule]]
 name = "a missing water tank is a problem"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'if self.water_tank == "out":'
 replace = 'if False:'
 
 [[rule]]
 name = "a part at ten percent or less is due"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'return percent <= DUE'
 replace = 'return percent < DUE'
 
 [[rule]]
 name = "a full status says problems first"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'opening = "Problems: " \+ "; "\.join\(problems\) \+ "\." if problems else "No problems\."'
 replace = 'opening = "No problems."'
 
 [[rule]]
 name = "a full status says what it cannot report"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'say = f"\{opening\} \{_sentence\(words\)\} \{_cannot_report\(reading\.cleaning, full\.mop_pad is not None\)\}"'
 replace = 'say = f"{opening} {_sentence(words)}"'
 
 [[rule]]
 name = "a clean in progress says how far it has got"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'words\[1:1\] = _progress_words\(progress or \{\}, room\)'
 replace = 'pass'
 
 [[rule]]
 name = "a full status names the room only from the live map"
-file = "src/dreame_mcp/voice.py"
+file = "src/vacuum_mcp/voice.py"
 find = 'return room\.get\("name"\) if m\.get\("source"\) == "live" else None'
 replace = 'return room.get("name")'
 

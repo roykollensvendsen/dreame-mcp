@@ -16,7 +16,7 @@ from fastmcp import Client
 
 from dreame_mcp.client import DreameStatus
 from dreame_mcp.simulator import SimulatedVacuum
-from dreame_mcp.voice import Link, Reading, Vacuum, _status, build_server, instructions
+from vacuum_mcp.voice import Link, Reading, Vacuum, _status, build_server, instructions
 
 SIX = {"vacuum_status", "vacuum_clean_all", "vacuum_pause", "vacuum_stop", "vacuum_go_home", "vacuum_find"}
 TOOLS = SIX | {"vacuum_where", "vacuum_rooms", "vacuum_clean_rooms", "vacuum_full_status"}
@@ -440,7 +440,7 @@ def test_stdout_carries_only_mcp():
 
 
 def test_discover_warning_is_dropped_and_others_kept():
-    from dreame_mcp.voice import _QuietDiscover
+    from vacuum_mcp.voice import _QuietDiscover
 
     def record(msg: str) -> logging.LogRecord:
         return logging.LogRecord("root", logging.WARNING, __file__, 1, msg, None, None)

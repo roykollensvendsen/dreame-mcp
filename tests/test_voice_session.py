@@ -12,7 +12,7 @@ Offline: a fake whose session ends on cue, never the real robot or cloud.
 from __future__ import annotations
 
 from dreame_mcp.client import DreameStatus
-from dreame_mcp.voice import Link, Vacuum
+from vacuum_mcp.voice import Link, Vacuum
 
 
 class Clock:

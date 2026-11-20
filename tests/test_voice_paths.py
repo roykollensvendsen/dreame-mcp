@@ -10,9 +10,9 @@ from typing import Any
 
 import pytest
 
-from dreame_mcp import voice
 from dreame_mcp.client import DreameStatus, _classify_cloud_failure
-from dreame_mcp.voice import Link, Reading, Vacuum, _login_problem, _status
+from vacuum_mcp import voice
+from vacuum_mcp.voice import Link, Reading, Vacuum, _login_problem, _status
 
 DOCKED = {"2.1": 13, "3.1": 90, "3.2": 3}
 IDLE_OFF_DOCK = {"2.1": 2, "3.1": 70, "3.2": 2}

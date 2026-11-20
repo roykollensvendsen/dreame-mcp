@@ -17,7 +17,7 @@ import re
 from fastmcp import Client
 
 from dreame_mcp.simulator import SimulatedVacuum
-from dreame_mcp.voice import Link, Vacuum, build_server
+from vacuum_mcp.voice import Link, Vacuum, build_server
 
 #: Characters of a description the voice saw before loading a tool, 2026-11-10.
 VISIBLE = 26

@@ -6,10 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dreame_mcp import voice
+from vacuum_mcp import voice
 from vacuum_mcp.backends import default, dreame
 
-SERVER_NAME = "dreame-vacuum-voice"  # the plugin's identity, which stays where FastMCP is built
+SERVER_NAME = "vacuum-voice"  # the plugin's identity, named after its command
 
 
 def test_the_voice_server_names_no_brand():
